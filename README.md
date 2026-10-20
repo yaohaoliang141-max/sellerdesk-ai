@@ -1,86 +1,231 @@
-# SellerDesk AI ⚡
+<div align="center">
 
-> 参考 Siena AI 核心业务模式、独立开发的轻量级跨境与独立站智能客服及协同订单管理系统。
+# SellerDesk AI
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![React](https://img.shields.io/badge/React-18.3-blue)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.6-blue)
-![TailwindCSS](https://img.shields.io/badge/TailwindCSS-3.4-38bdf8)
-![Vite](https://img.shields.io/badge/Vite-5.4-purple)
+**Lightweight E-commerce AI Copilot & Supply Chain Order Management Workstation**  
+*独立开发的轻量级电商智能客服与协同中台 · 真实订单研判 · 供应链隐私保护 · 事实对齐*
 
----
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-2ea44f?style=flat-square&logo=github)](https://yaohaoliang141-max.github.io/sellerdesk-ai/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
+[![Tests Passing](https://img.shields.io/badge/Tests-14%20Passed-emerald?style=flat-square&logo=node.js)](tests/)
+[![React 18.3](https://img.shields.io/badge/React-18.3-61dafb?style=flat-square&logo=react)](https://react.dev/)
+[![TypeScript 5.6](https://img.shields.io/badge/TypeScript-5.6-3178c6?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
+[![TailwindCSS 3.4](https://img.shields.io/badge/TailwindCSS-3.4-38bdf8?style=flat-square&logo=tailwindcss)](https://tailwindcss.com/)
+[![Vite 5.4](https://img.shields.io/badge/Vite-5.4-646cff?style=flat-square&logo=vite)](https://vitejs.dev/)
 
-## 🌟 项目特色
+[🚀 访问线上体验版 (无需安装，即开即用)](https://yaohaoliang141-max.github.io/sellerdesk-ai/) · [📺 观看完整演示视频](#-完整产品演示视频) · [🛠 本地运行构建](#-本地部署与开发)
 
-1. **真实供应链协同，绝不捏造物流**
-   - 销售订单（例如 `XY-1001`）与供应商采购订单（例如 `CG-8001`）双向打通。
-   - 当采购状态为“已采购，待发货”时，客服 AI 严格依据真实生产检验进度回应客户，拒绝凭空编造假单号。
-2. **知识库双向对齐（Siena 模式）**
-   - 动态调取商品规格属性（如松木实木框、附赠无痕挂钩等）、发货时效规范（48小时质检发出）、7天无理由退换货政策与 FAQ 知识库。
-3. **极简 SaaS 设计风格**
-   - 借鉴 Linear 与 Notion 的专业极简视觉标准，支持深浅灰阶对比、清晰状态标签、等宽字体单号与全响应式布局（适配桌面端与移动端）。
-4. **一键生成与人工把关**
-   - 支持智能生成回复、决策依据透明追溯、直接在线二次编辑、一键复制到剪贴板与保存模拟回复。
-5. **本地存储与离线零依赖**
-   - 第一版所有数据保存在浏览器 `localStorage` 中，支持一键重置与导出 JSON 备份，无需配置任何后端即可即开即用。
-6. **安全免密钥泄露架构**
-   - 绝不在公开前端网页中保存或暴露私有大模型 API Key。未来接入大模型采用受保护的服务端代理。
-7. **事实约束与完备测试**
-   - 内置针对物流、退款与商品知识库的自动化校验测试（`npm test`），杜绝生成任何未经订单证实的发货承诺、虚构物流、虚构地址或退款时限。
+</div>
 
 ---
 
-## 🧭 功能模块
+## 📌 产品定位
 
-- **Overview（总览）**：实时监测订单量、待发货订单、待回复消息、已完成会话与 AI 采纳率指标。
-- **AI Inbox（AI 客服）**：类似聊天软件的工作台，查看客户消息流、关联订单详情，一键生成依据供应链事实的建议答复。
-- **Orders（订单协同）**：查看、搜索、筛选和编辑销售订单与采购订单，支持新增模拟测试订单。
-- **Knowledge Base（商品知识库）**：商品基础资料增删改、发货时效规则配置、退换货规则配置与常见问答库。
-- **Settings（系统设置）**：修改店铺名称、调整 AI 回复人设语气（专业严谨 / 亲切温馨 / 极简高效）及落款签名。
+**SellerDesk AI** 是一个参考 Siena AI 协同理念、但独立设计与开发的**轻量级电商 AI 客服与订单协同中台**。
+
+面向轻资产电商、无货源一件代发、跨境独立站与二手电商（闲鱼/转转）卖家，打通**“终端销售订单”**与**“源头采购订单（1688/供货工厂）”**之间的信息断层。系统依托真实订单状态与商家履约政策库生成回复建议，严格防范商业机密泄露与无依据承诺，通过**“AI 研判建议 + 人工核验把关”**的闭环，保障每一次买家沟通的准确与专业。
 
 ---
 
-## 🚀 本地开发与运行
+## 🖥 首页总览 Dashboard
+
+采用类似 Linear 与 Notion 的专业极简管理后台设计，所有指标与异常预警均从当前订单及会话数据实时动态计算：
+
+![SellerDesk AI Dashboard](docs/media/overview.png)
+
+---
+
+## ⚡ 核心协同流程演示 (GIF)
+
+从销售订单创建、选择知识库商品与关联采购单，到直达 AI 客服工作台、提取事实研判、触发人工审核预警并保存记录：
+
+![SellerDesk AI End-to-End Workflow](docs/media/demo.gif)
+
+> **流程详解**：
+> 1. **订单创建与穿透**：录入销售订单并关联 1688 采购单，记录供应商名称、采购状态与进货成本。
+> 2. **工单无缝直达**：点击“前往客服”直接定位对应订单的专属会话，若无买家历史留言则自动初始化纯净工单，**绝不捏造买家咨询**。
+> 3. **事实研判与隐私保护**：输入客户提问，系统检索真实物流与采购节点。买家回复自动隐去供应商名称与成本，同时在商家后台展示研判推理依据。
+> 4. **强制人工审核**：存在未录入单号或供应链排单等待时，高亮提示“⚠️ 需要人工审核”并锁定直接标记为已解决，必须由商家核对勾选后方可保存。
+
+---
+
+## 📸 核心功能界面与设计规范
+
+### 1. 销售与供应链协同订单管理 (Orders)
+
+真实呈现终端销售与源头采购的对应关系，支持按订单状态筛选与跨表字段检索：
+
+![Orders Management](docs/media/orders.png)
+
+* **多级状态细分**：区分供应商制单排期、工厂出库中转、质检仓收货、快递承运配送与签收等多级状态。
+* **商品动态联动**：从知识库下拉选品，自动同步售价、成本与规格；支持录入非库商品且不绑定错误商品属性。
+* **防重校验机制**：销售单号唯一性校验，防止重复录入。
+
+---
+
+### 2. AI 客服工作台与人工审核把关 (AI Inbox)
+
+集工单列表、客户会话流、研判推理链、审核提示与快捷场景于一体的一站式客服中台：
+
+![AI Inbox & Human Review](docs/media/inbox.png)
+
+* **事实推理链公开**：展示 AI 提取的数据来源（采购状态、全店政策、商品规格），辅助商家决策。
+* **审核拦截机制**：当出现缺少单号、时效未核实或政策存疑时，强制显示审核原因并要求人工核验确认。
+* **安全模拟保存**：仅提供“保存模拟回复”与“复制回复”，不连接真实买家接口，杜绝静默误发。
+
+---
+
+### 3. 双层履约知识库 (Knowledge Base)
+
+商品基础资料与全店规则中心，作为客服回复建议的底层事实源泉：
+
+![Knowledge Base](docs/media/knowledge.png)
+
+* **商品专属知识**：维护 SKU、售价、成本、材质规格与专属常见问答。
+* **全店通用政策**：集中维护发货时效标准（如 48 小时质检发出）、7 天退换货规则与全店通用 FAQ（如包邮范围、发票开具）。
+* **即时更新生效**：商家维护政策或问答后，AI 工作台新生成的建议即刻使用最新依据。
+
+---
+
+### 4. 移动端全响应式适配 (Mobile View)
+
+支持随时随地在手机或平板浏览器上查看预警、查询订单并审核答复：
+
+<div align="center">
+  <img src="docs/media/mobile.png" width="360" alt="SellerDesk AI Mobile View" />
+</div>
+
+---
+
+## 📺 完整产品演示视频
+
+点击下方视频封面即可观看 37 秒高清全流程演示视频（H.264 编码，包含 Dashboard、订单采购协同、AI 工作台研判、人工审核及知识库全景）：
+
+[![Watch Product Demo Video](docs/media/video-cover.png)](docs/media/demo.mp4)
+
+> 💡 *若在部分移动端浏览器中无法直接点击播放，可在仓库 [`docs/media/demo.mp4`](docs/media/demo.mp4) 中直接下载或预览原画质文件。*
+
+---
+
+## 🎯 业务与安全设计原则
+
+1. **商业隐私安全第一**
+   - 采购成本、供应商店铺名、1688 采购单号、工厂内部备忘属于卖家核心商业机密。
+   - 面向买家的文本绝对脱敏，仅在卖家后台管理区显示。
+2. **拒绝捏造事实与时效承诺**
+   - 采购订单“已发货”不等于买家订单“已发货”，在终端运单号未生成前绝不虚报快递公司与单号。
+   - 知识库未收录或时效未经核实的问题，明确提示“需人工核实”，绝不胡编乱造。
+3. **前端零私密 Key 暴露**
+   - 前端网页不提供任何大模型 API Key 输入框或客户端本地保存，避免密钥泄露。接入大语言模型时将采用受保护的独立后端中继。
+4. **演示环境与真实边界透明披露**
+   - 页面明确标注演示环境，所有概览统计均从内存与 localStorage 真实计算，剔除虚假效率指标与假采纳率。
+
+---
+
+## ⚠️ 当前版本能力与边界声明
+
+为避免误导使用者与潜在合作伙伴，特此如实披露当前技术版本（v0.1.0）的具体实现边界：
+
+| 模块 | 当前实现方式 | 生产版规划 (Roadmap) |
+| :--- | :--- | :--- |
+| **客服推理引擎** | 基于领域规则与模板的确定性推理引擎 (`aiEngine.ts`) | 接入 DeepSeek-V3 / R1 大语言模型 + 意图检索 |
+| **数据持久化** | 浏览器 `localStorage` 离线存储，支持一键重置 | 接入 Supabase / PostgreSQL 云端数据库与权限管理 |
+| **电商平台对接** | 纯前端模拟工单与测试订单录入 | 通过 Open API 或 RPA 插件对接闲鱼、淘宝、Shopify |
+| **采购平台协同** | 模拟录入 1688 采购单号、状态及成本 | 通过开放平台或无头浏览器监控 1688 供货物流回传 |
+| **消息发送模式** | 商家核验后“复制回复”或“保存模拟回复” | 经商家授权后自动推送到对应的平台客服会话 |
+
+---
+
+## 🛠 本地部署与开发
+
+无需配置复杂后端环境或数据库，只需 Node.js 即可极速启动：
+
+### 1. 环境准备
+- Node.js (推荐 v18.0 或更高版本，已在 Node.js v24.14.0 完整验证)
+- npm / pnpm / yarn
+
+### 2. 克隆与运行
 
 ```bash
-# 1. 克隆代码仓库
+# 克隆仓库
 git clone https://github.com/yaohaoliang141-max/sellerdesk-ai.git
 cd sellerdesk-ai
 
-# 2. 安装依赖
+# 安装依赖
 npm install
 
-# 3. 运行自动化真实性与安全测试
+# 运行自动化真实性与工作流集成测试 (14 项测试全通过)
 npm test
 
-# 4. 启动开发服务器
+# 启动本地开发服务器
 npm run dev
+```
 
-# 5. 构建生产产物
+在浏览器打开终端输出的本地地址（如 `http://localhost:5173/`）即可使用。
+
+### 3. 构建与部署
+
+```bash
+# 类型检查与打包
 npm run build
 
-# 6. 一键部署发布至 GitHub Pages
+# 自动重新生成全量产品截图、GIF 动图与演示视频 (需本地 Playwright 与 ffmpeg)
+npm run generate-media
+
+# 一键部署到 GitHub Pages (gh-pages 分支)
 npm run deploy
 ```
 
 ---
 
-## 🔮 未来接入架构路线（DeepSeek AI & Supabase）
+## 🧪 自动化测试套件
 
-本项目代码架构严格分层，以便未来平滑升级：
+项目内置针对商业隐私、物流真实性、知识库全店检索与完整业务协同的自动化测试套件：
 
-1. **接入 DeepSeek AI API**：
-   - 核心代码位于 `src/services/aiEngine.ts`。
-   - 目前采用确定性规则引擎模拟推理过程，返回统一的 `GeneratedReplyResult` 接口。
-   - 接入时只需在该服务内通过 `fetch('https://api.deepseek.com/chat/completions')` 调用 `deepseek-chat` 或 `deepseek-reasoner`，传入 `order`、`product`、`policies` 作为 System Prompt，无需重构任何前端界面。
-2. **接入 Supabase 云数据库**：
-   - 数据操作均汇集在 `src/services/storage.ts`。
-   - 接入时引入 `@supabase/supabase-js`，将 `StorageService` 内的 `localStorage.getItem/setItem` 替换为 `supabase.from('orders').select()` 与 `.update()` 即可实现全端数据同步与多客服协作。
-3. **真实电商平台对接**：
-   - 数据结构已预留 Shopify / Amazon / 店匠 Order ID 与 Tracking Number 映射，可通过 Webhook 实时消费订单状态。
+```text
+▶ AIEngineService - 商业隐私、真实性与知识库检索测试
+  ✔ 商业隐私保护：买家可见回复绝不泄露供应商名称、采购单号、采购成本与工厂内部备注
+  ✔ 知识库全店 FAQ 检索：能够检索全店 FAQ 知识并精准回答开票与质保问题
+  ✔ 多级状态细分：供应商已出库但终端未录入运单号时，说明中转揽收中并触发人工审核
+  ✔ 缺失物流信息：订单标记为已发货但无运单号，触发人工审核与原因说明
+  ✔ 售后场景隐私保护：退换货咨询中严禁暴露关联采购单信息或供货成本
+  ✔ 物流测试：已发货订单只提供已有单号与承运商，不编造预计送达时间
+  ✔ 商品问答测试：精准命中专属知识库规格与问答
+  ✔ 商品问答测试：知识库未收录的问题明确提示需人工核实，拒绝胡编乱造
+
+▶ SellerDesk AI - 完整业务协同工作流测试
+  ✔ 1. 新建不同商品订单：确认选择知识库商品与自定义商品时，productId 关联准确，严禁死锁 prod-001
+  ✔ 2. 订单直达客服工作台：点击前往客服时，若无会话则自动创建纯净空白工单，绝不虚构买家留言
+  ✔ 3. 修改订单状态后，客服生成回复依据实时同步变化
+  ✔ 4. 知识库 FAQ 修改后，重新生成的回复立即使用最新维护的条目
+  ✔ 5. 动态总览数据统计：真实从当前订单与会话计算，无死锁硬编码
+  ✔ 6. 本地持久化储存读写校验：修改订单与保存客服回复后，StorageService 正确持久化
+
+ℹ tests 14 | suites 2 | pass 14 | fail 0
+```
 
 ---
 
-## 📄 开源许可
+## 🗺 技术演进路线 (Roadmap)
 
-MIT License
+- [x] **v0.1.0 基础协同版 (当前版本)**
+  - [x] 销售订单与 1688 采购订单多级关联
+  - [x] 基于真实事实与履约规则的 AI 客服研判
+  - [x] 供应链核心商业隐私自动脱敏
+  - [x] 强制人工审核拦截与核验标记
+  - [x] 双层知识库与动态指标 Dashboard
+  - [x] 纯前端无服务架构与自动化测试套件
+- [ ] **v0.2.0 云端协作版**
+  - [ ] 接入 Supabase / PostgreSQL 实现多客服账号与跨设备实时同步
+  - [ ] 接入 DeepSeek-V3 / DeepSeek-R1 模型后端代理（服务端安全签名）
+  - [ ] 支持订单与商品知识库的 CSV / Excel 批量导入导出
+- [ ] **v0.3.0 平台直连版**
+  - [ ] Chrome 浏览器扩展插件，一键注入闲鱼 / 淘宝千牛客服侧边栏
+  - [ ] 1688 采购物流状态实时自动爬取与回传同步
+  - [ ] 多店铺、多币种与多语言跨国支持
+
+---
+
+## 📄 开源许可证
+
+本项目基于 [MIT 许可证](LICENSE) 开源。欢迎 Star、Fork 与提出 Issue 交流！
