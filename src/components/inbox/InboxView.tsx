@@ -494,7 +494,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
                       AI 建议回复（可直接编辑）
                     </span>
                     <span className="text-[10px] text-sky-700 ml-2">
-                      严格遵循真实订单与采购单事实
+                      严格遵循真实事实 · 商业隐私已自动脱敏
                     </span>
                   </div>
                 </div>
@@ -523,7 +523,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
               <div className="p-2.5 rounded-lg bg-zinc-50 border border-zinc-100 text-[11px] text-zinc-600 space-y-1">
                 <div className="font-semibold text-zinc-800 flex items-center gap-1">
                   <Info className="w-3 h-3 text-sky-500" />
-                  <span>AI 决策依据（不捏造虚假物流）：</span>
+                  <span>商家后台研判依据（买家端已自动隐去供货商与成本隐私）：</span>
                 </div>
                 <div className="space-y-0.5 text-zinc-500 pl-4 list-disc">
                   {aiResult.reasoningSteps.map((step, sIdx) => (

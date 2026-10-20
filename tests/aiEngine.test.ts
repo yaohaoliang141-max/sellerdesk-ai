@@ -61,7 +61,7 @@ const mockPendingOrder: Order = {
     supplierName: '杭州艺景工坊家居供应链',
     status: 'procured_pending_shipment',
     costAmount: 52.0,
-    notes: '工厂排单检验中',
+    notes: '工厂排单检验中，预计明天可交接顺丰',
     updatedAt: '2026-10-20 09:30:00',
   },
 };
@@ -96,12 +96,20 @@ const mockRefundOrder: Order = {
   currency: '¥',
   orderStatus: 'refund_requested',
   createdAt: '2026-10-17 19:30:00',
+  purchaseOrder: {
+    id: 'CG-7988',
+    supplierName: '永康市精工五金实业',
+    status: 'warehouse_received',
+    costAmount: 64.0,
+    notes: '供应商已送达质检仓',
+    updatedAt: '2026-10-17 21:00:00',
+  },
 };
 
-describe('AIEngineService - 物流、退款与问答真实性约束测试', () => {
-  test('物流测试：待发货且有关联采购单时，必须依据真实状态，不得虚构发货时间或伪造单号', () => {
+describe('AIEngineService - 商业隐私与真实性约束测试', () => {
+  test('商业隐私保护：买家可见回复绝不泄露供应商名称、采购单号、采购成本与工厂内部备注', () => {
     const res = AIEngineService.generateReply({
-      customerQuery: '你好，我的复古装饰画什么时候发货？',
+      customerQuery: '你好，我的复古装饰画什么时候发货？周五前能收到吗？',
       order: mockPendingOrder,
       product: mockProduct,
       policies: mockPolicies,
@@ -109,15 +117,50 @@ describe('AIEngineService - 物流、退款与问答真实性约束测试', () =
     });
 
     assert.equal(res.intent, 'logistics');
+    // 必须包含销售订单号
     assert.match(res.replyText, /XY-1001/);
-    assert.match(res.replyText, /CG-8001/);
-    assert.match(res.replyText, /已采购，待发货/);
-    assert.match(res.replyText, /杭州艺景工坊家居供应链/);
 
-    // 确保绝无编造的虚假承诺
-    assert.doesNotMatch(res.replyText, /预计将于今天\/明天交接/);
-    assert.doesNotMatch(res.replyText, /2-4 天内即可送达/);
-    assert.doesNotMatch(res.replyText, /次日或隔日送达/);
+    // 严禁向买家泄露任何供应链商业私密信息
+    assert.doesNotMatch(res.replyText, /CG-8001/, '严禁在买家回复中出现采购订单号');
+    assert.doesNotMatch(res.replyText, /杭州艺景工坊/, '严禁在买家回复中泄露供应商名称');
+    assert.doesNotMatch(res.replyText, /52\.00|52元|采购成本/, '严禁在买家回复中泄露供货成本');
+    assert.doesNotMatch(res.replyText, /工厂排单检验中/, '严禁在买家回复中透露内部工厂排单备注');
+
+    // 合规面向买家的备货阶段说明
+    assert.match(res.replyText, /备货制作与出库质检/);
+
+    // 供应商备注中的发货时间不得当作已确认承诺，必须提示人工确认
+    assert.doesNotMatch(res.replyText, /预计明天可交接/);
+    assert.doesNotMatch(res.replyText, /明天发货/);
+    assert.equal(res.requiresHumanReview, true, '发货时效未转为快递揽收前必须提示人工审核确认');
+
+    // 商家后台推理链中应保留供卖家核查判断的内部数据
+    const allSteps = res.reasoningSteps.join(' ');
+    assert.match(allSteps, /CG-8001/, '商家决策步骤应保留采购单号供卖家参考');
+    assert.match(allSteps, /杭州艺景工坊家居供应链/, '商家决策步骤应保留供应商名称供卖家参考');
+    assert.match(allSteps, /商业隐私脱敏保护/, '商家决策步骤应记录脱敏动作');
+  });
+
+  test('售后场景隐私保护：退换货咨询中严禁暴露关联采购单信息或供货成本', () => {
+    const res = AIEngineService.generateReply({
+      customerQuery: '保温杯买错颜色了，怎么办理换货？',
+      order: mockRefundOrder,
+      policies: mockPolicies,
+      settings: mockSettings,
+    });
+
+    assert.equal(res.intent, 'return_refund');
+    assert.match(res.replyText, /7 天无理由退换/);
+
+    // 严禁泄露五金实业供应商与采购单
+    assert.doesNotMatch(res.replyText, /CG-7988/);
+    assert.doesNotMatch(res.replyText, /永康市精工五金实业/);
+    assert.doesNotMatch(res.replyText, /64\.00/);
+
+    // 严禁捏造虚假退货地址或电话
+    assert.doesNotMatch(res.replyText, /上海市青浦区仓储物流园/);
+    assert.doesNotMatch(res.replyText, /400-800-8899/);
+    assert.match(res.replyText, /人工客服审核后向您提供/);
   });
 
   test('物流测试：已发货订单只提供已有单号与承运商，不编造预计送达时间', () => {
@@ -136,25 +179,6 @@ describe('AIEngineService - 物流、退款与问答真实性约束测试', () =
     assert.doesNotMatch(res.replyText, /预计明天下午送达/);
     assert.doesNotMatch(res.replyText, /2-4 天内即可送达/);
     assert.match(res.replyText, /实际运输/);
-  });
-
-  test('退换货测试：拒绝捏造虚假仓库地址、电话或24小时退款时限', () => {
-    const res = AIEngineService.generateReply({
-      customerQuery: '这个杯子买错了，怎么退货？',
-      order: mockRefundOrder,
-      policies: mockPolicies,
-      settings: mockSettings,
-    });
-
-    assert.equal(res.intent, 'return_refund');
-    // 真实读取商家设置的退换政策
-    assert.match(res.replyText, /7 天无理由退换/);
-
-    // 严禁输出任何虚构的地址与电话与时限
-    assert.doesNotMatch(res.replyText, /上海市青浦区仓储物流园/);
-    assert.doesNotMatch(res.replyText, /400-800-8899/);
-    assert.doesNotMatch(res.replyText, /24 小时内全额原路退款/);
-    assert.match(res.replyText, /人工客服审核后向您提供/);
   });
 
   test('商品问答测试：精准命中知识库规格与问答', () => {

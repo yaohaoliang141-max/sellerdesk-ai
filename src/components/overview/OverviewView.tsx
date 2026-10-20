@@ -164,7 +164,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                     <span className="text-xs text-zinc-500">客户：李梦琪</span>
                   </div>
                   <p className="text-xs text-zinc-600 leading-relaxed">
-                    客户在客服中催单（“什么时候发货？急用”）。对应采购单 <span className="font-mono font-medium text-zinc-900">CG-8001</span>（杭州艺景工坊家居）正在打包检验中，未虚构单号。
+                    客户在客服中催单（“什么时候发货？急用”）。后台采购单 <span className="font-mono font-medium text-zinc-900">CG-8001</span>（杭州艺景工坊家居）正在备货质检中；AI 生成买家答复时已执行隐私脱敏，不泄露供货商与采购单号。
                   </p>
                 </div>
                 <button

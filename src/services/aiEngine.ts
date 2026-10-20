@@ -19,13 +19,17 @@ export interface GeneratedReplyResult {
 
 export class AIEngineService {
   /**
-   * Generates a strictly grounded reply suggestion based ONLY on verified order details,
-   * real supplier purchase order status, verified product knowledge base, and merchant policies.
+   * Generates a strictly grounded reply suggestion for the buyer.
    *
-   * Realism & Safety constraints:
-   * 1. NEVER invent unverified shipping times, delivery deadlines, or fake dates.
-   * 2. NEVER invent return addresses, phone numbers, or refund time limits not present in policies.
-   * 3. When information is missing or unverified, explicitly state that manual verification is required.
+   * BUSINESS PRIVACY & SAFETY PRINCIPLES:
+   * 1. STRICT SEPARATION: "Merchant Internal Data" vs "Buyer-Facing Reply".
+   * 2. NEVER leak to buyers: Supplier names, 1688 / procurement order numbers,
+   *    purchase cost, profit margins, or internal supplier notes.
+   * 3. Internal procurement details remain solely in `reasoningSteps` and admin panels
+   *    for merchant decision-making.
+   * 4. Supplier notes/schedules must NOT be treated as guaranteed promises to buyers;
+   *    any unverified timeline must prompt human review (`requiresHumanReview = true`).
+   * 5. NEVER invent unverified delivery days, return addresses, phone numbers, or refund time limits.
    */
   static generateReply(params: GenerateReplyParams): GeneratedReplyResult {
     const { customerQuery, order, product, policies, settings } = params;
@@ -66,43 +70,50 @@ export class AIEngineService {
 
     // 2. Logic based strictly on Order, Procurement, and Knowledge Base Policies
     if (intent === 'logistics') {
-      reasoningSteps.push('识别意图：【物流与发货进度咨询】');
+      reasoningSteps.push('识别客户意图：【物流进度与发货时效咨询】');
 
       if (order) {
-        reasoningSteps.push(`读取销售订单 [${order.id}] 状态: ${this.getOrderStatusLabel(order.orderStatus)}`);
+        reasoningSteps.push(`读取客户销售订单 [${order.id}] 履约状态: ${this.getOrderStatusLabel(order.orderStatus)}`);
 
         if (order.purchaseOrder) {
+          // Merchant-internal data logged for seller review only
           reasoningSteps.push(
-            `读取关联采购单 [${order.purchaseOrder.id}]，供应商状态: ${this.getPurchaseStatusLabel(
+            `【商家内部供应链数据】关联采购单 [${order.purchaseOrder.id}]，供应商：${order.purchaseOrder.supplierName}，采购状态：${this.getPurchaseStatusLabel(
               order.purchaseOrder.status
-            )} (${order.purchaseOrder.supplierName})`
+            )}，采购成本：¥${order.purchaseOrder.costAmount.toFixed(2)}`
+          );
+          if (order.purchaseOrder.notes) {
+            reasoningSteps.push(`【商家内部备注】${order.purchaseOrder.notes}`);
+          }
+          reasoningSteps.push(
+            '【商业隐私脱敏保护】已脱敏：严禁向买家暴露供应商名称、采购单号、进货成本及内部备注，已转为买家合规说明'
           );
         }
 
         if (order.orderStatus === 'shipped') {
-          reasoningSteps.push('订单已发货：严格仅引用已登记的承运商与运单号，不编造具体派送天数');
+          reasoningSteps.push('订单已发货：仅向买家提供已登记的承运快递与运单号，不向买家编造预计到达天数');
           const carrier = order.shippingCarrier ? `【${order.shippingCarrier}】` : '快递公司';
           const tracking = order.trackingNumber ? `运单号为：${order.trackingNumber}` : '运单号正在同步中';
 
           reply = `${greeting}
 关于您的订单（编号：${order.id}，商品：${order.productName}）：
 包裹已通过 ${carrier} 发出，${tracking}。
-快件具体送达时间受快递公司实际运输与天气情况影响，系统暂无到货时间承诺，建议您通过运单号关注实时物流轨迹。如需协助催件可联系人工客服跟进。${closing}`;
+快件具体到达时间受快递公司实际运输轨迹与当地派送影响，系统暂无具体到货时间承诺，建议您关注运单实时物流更新。如需加急催件可联系人工客服协助跟进。${closing}`;
         } else if (order.orderStatus === 'paid_pending_shipment') {
           if (order.purchaseOrder) {
-            reasoningSteps.push('订单待发货且有关联采购单：根据真实供应链状态回复，不承诺虚构的发货日期');
-            const pStatusText = this.getPurchaseStatusLabel(order.purchaseOrder.status);
-            const notesInfo = order.purchaseOrder.notes ? `\n供应商跟进记录：${order.purchaseOrder.notes}` : '';
+            reasoningSteps.push(
+              '订单待发货且有关联采购单：提示备货质检中，供应商内部排期备注未转为实际物流揽收，不作绝对承诺，提示人工确认'
+            );
 
             reply = `${greeting}
 关于您的订单（编号：${order.id}，商品：${order.productName}）：
-后台显示当前对应的采购单（单号：${order.purchaseOrder.id}）状态为【${pStatusText}】（供应商：${order.purchaseOrder.supplierName}）。${notesInfo}
-由于商品正在按工序备货质检，尚未交接给快递公司生成运单号，具体发出时效以供应商实际揽收为准。如您有紧急时效要求，建议由人工客服向供应商做进一步核实。${closing}`;
+您的订单目前处于【备货制作与出库质检】阶段。
+商品按工序完成质检与加固打包后，将第一时间交由快递公司发出并同步运单信息。出库时效以快递实际揽收为准，暂无法承诺绝对发货日期。如您有紧急时效要求或特殊安排，建议由人工客服为您进一步向仓库跟进核实。${closing}`;
             requiresHumanReview = true;
           } else {
-            reasoningSteps.push('订单已付款未发货且未关联采购单：读取知识库发货规则');
+            reasoningSteps.push('订单待发货且未关联采购单：读取知识库发货规则，脱敏说明待发货');
             const policySummary = policies.shippingRules?.trim()
-              ? `\n本店发货规则说明：\n${policies.shippingRules.trim()}`
+              ? `\n本店发货参考规则：\n${policies.shippingRules.trim()}`
               : '';
 
             reply = `${greeting}
@@ -135,8 +146,14 @@ ${policyText}如需查询特定订单的发货与运输进展，请提供您的�
         requiresHumanReview = true;
       }
     } else if (intent === 'return_refund') {
-      reasoningSteps.push('识别意图：【退换货与退款政策咨询】');
+      reasoningSteps.push('识别客户意图：【退换货与退款政策咨询】');
       reasoningSteps.push('真实读取商家知识库【退换货政策】，杜绝编造退货地址、电话与退款时限');
+
+      if (order && order.purchaseOrder) {
+        reasoningSteps.push(
+          `【商业隐私脱敏保护】已脱敏：买家端绝不显示供货商成本 ¥${order.purchaseOrder.costAmount} 及采购单号 ${order.purchaseOrder.id}`
+        );
+      }
 
       const merchantReturnPolicy = policies.returnPolicy?.trim();
 
@@ -173,7 +190,7 @@ ${merchantReturnPolicy}
         }
       }
     } else if (intent === 'product_inquiry') {
-      reasoningSteps.push('识别意图：【商品属性、材质、规格与功能咨询】');
+      reasoningSteps.push('识别客户意图：【商品属性、材质、规格与功能咨询】');
 
       const targetProduct = product || (order ? { name: order.productName, specs: '', faqList: [] } : undefined);
 

@@ -151,9 +151,9 @@ export const OrderContextSidebar: React.FC<OrderContextSidebarProps> = ({
           </div>
         )}
 
-        <div className="flex items-center gap-1 text-[10px] text-zinc-500">
-          <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-          <span>AI 客服将严格遵循此采购进度，不造假物流。</span>
+        <div className="flex items-start gap-1.5 text-[10px] text-zinc-500 pt-1 border-t border-amber-100">
+          <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+          <span>商家内部专属视图：供应商、进价与工厂备注仅供卖家查阅，AI 生成买家回复时已执行全链路商业脱敏。</span>
         </div>
       </div>
 
