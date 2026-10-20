@@ -190,7 +190,7 @@ export const INITIAL_CONVERSATIONS: Conversation[] = [
       {
         id: 'msg-202',
         sender: 'agent',
-        content: '张先生您好！这款极简降噪耳机标配附赠高品质抗压便携收纳硬包及Type-C编织音频充电线，收纳非常安全，请您放心！顺丰单号 SF149928172901 预计明天下午送达。',
+        content: '张先生您好！这款极简降噪耳机标配附赠高品质抗压便携收纳硬包及Type-C编织音频充电线，收纳非常安全，请您放心！顺丰单号 SF149928172901 目前处于运输派送中，具体轨迹可直接在物流详情中查询。',
         timestamp: '2026-10-19 16:45:00'
       }
     ]
@@ -223,20 +223,20 @@ export const INITIAL_POLICIES: StorePolicies = {
   returnPolicy: `1. 7天无理由退换货：在商品未拆封、配件齐全、不影响二次销售的前提下，支持签收后 7 天内无理由退换。
 2. 质量问题与破损：若收货时发现外包装严重破损或产品故障，请在签收 48 小时内拍照留存并联系客服，由本店全额承担往返运费并立即补发新机/新画。
 3. 个人原因退换：因个人喜好、拍错颜色或规格需要退换的，买家需承担退回快递运费。
-4. 退货退款流程：联系在线客服确认 -> 获取退货仓库地址与退货授权码 -> 寄出并填写回邮单号 -> 仓库收到核验无误后 24 小时内原路退款。`,
+4. 退货退款流程：联系在线客服确认 -> 人工客服提供退货仓库地址与退货授权码 -> 寄出并填写回邮单号 -> 仓库收到核验无误后按规则办理退款。`,
 
   faqList: [
     {
       id: 'faq-1',
       category: '发货与时效',
       question: '下单后多久可以发货？什么时候能到？',
-      answer: '您好！我们所有正常现货订单均会在 48 小时内按付款顺序发出。江浙沪广深等核心城市通常发出后次日或隔日送达，其他地区一般 2-4 天左右送达。'
+      answer: '您好！我们所有正常现货订单均会在 48 小时内按付款顺序质检发出。具体派件到达时效受承运快递实际运输轨迹影响，系统暂无到达时间承诺。'
     },
     {
       id: 'faq-2',
       category: '售后退换',
       question: '商品不满意可以退货吗？怎么退？',
-      answer: '支持签收后 7 天无理由退换货！只要未拆封使用且包装完好，联系我们客服即可获取退货地址，仓库签收确认后将在 24 小时内原路全额退款。'
+      answer: '支持签收后 7 天无理由退换货！未拆封使用且包装完好的商品，联系客服并由人工提供准确退货地址后寄回，仓库签收核验无误后将按流程办理原路退款。'
     },
     {
       id: 'faq-3',
@@ -348,5 +348,7 @@ export class StorageService {
     localStorage.removeItem(STORAGE_KEYS.CONVERSATIONS);
     localStorage.removeItem(STORAGE_KEYS.POLICIES);
     localStorage.removeItem(STORAGE_KEYS.SETTINGS);
+    localStorage.removeItem('sellerdesk_deepseek_key');
+    localStorage.removeItem('sellerdesk_supabase_url');
   }
 }

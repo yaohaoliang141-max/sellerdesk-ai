@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --experimental-strip-types --test tests/aiEngine.test.ts",
+    "deploy": "node scripts/deploy.js"
   },
   "dependencies": {
     "lucide-react": "^1.16.0",

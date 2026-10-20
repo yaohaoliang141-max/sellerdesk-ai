@@ -32,19 +32,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 }) => {
   const [formData, setFormData] = useState<StoreSettings>({ ...settings });
 
-  // Optional placeholder for future DeepSeek and Supabase keys
-  const [deepseekKey, setDeepseekKey] = useState(
-    localStorage.getItem('sellerdesk_deepseek_key') || ''
-  );
-  const [supabaseUrl, setSupabaseUrl] = useState(
-    localStorage.getItem('sellerdesk_supabase_url') || ''
-  );
-
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     onUpdateSettings(formData);
-    localStorage.setItem('sellerdesk_deepseek_key', deepseekKey);
-    localStorage.setItem('sellerdesk_supabase_url', supabaseUrl);
+    // Security clean up: ensure no secret keys are left in client localStorage
+    localStorage.removeItem('sellerdesk_deepseek_key');
+    localStorage.removeItem('sellerdesk_supabase_url');
     onShowToast('系统设置与客服风格偏好已成功保存！', 'success');
   };
 
@@ -193,40 +186,49 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
-            {/* DeepSeek API Card */}
+            {/* DeepSeek API Card - Secure Server Proxy Architecture */}
             <div className="p-4 rounded-xl bg-white border border-zinc-200/80 space-y-2">
-              <div className="flex items-center gap-2 font-semibold text-zinc-900">
-                <Cpu className="w-4 h-4 text-sky-600" />
-                <span>DeepSeek AI 大模型 API</span>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 font-semibold text-zinc-900">
+                  <Cpu className="w-4 h-4 text-sky-600" />
+                  <span>DeepSeek AI 服务端安全代理</span>
+                </div>
+                <span className="text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-medium border border-emerald-100 flex items-center gap-1">
+                  <ShieldCheck className="w-3 h-3" />
+                  安全免凭证暴露
+                </span>
               </div>
               <p className="text-[11px] text-zinc-500 leading-relaxed">
-                可接入 <code>deepseek-chat</code> 或 <code>deepseek-reasoner</code>。只需在 <code>aiEngine.ts</code> 中把本地规则引擎切换为向 DeepSeek 发起 HTTP 请求。
+                【安全准则】私密 API 密钥（如 <code>DEEPSEEK_API_KEY</code>）严禁在公开网页前端保存或暴露。
               </p>
-              <input
-                type="password"
-                placeholder="sk-deepseek-api-key (预留密钥输入)"
-                value={deepseekKey}
-                onChange={(e) => setDeepseekKey(e.target.value)}
-                className="w-full px-3 py-1.5 bg-zinc-50 border border-zinc-200 rounded-lg text-xs font-mono"
-              />
+              <div className="p-2.5 rounded bg-zinc-50 border border-zinc-200/70 text-[11px] text-zinc-600 space-y-1">
+                <span className="font-semibold text-zinc-800 block">生产对接方案：</span>
+                <p className="text-[10px] text-zinc-500 leading-normal">
+                  未来启用大模型时，前端将请求专属服务端路由（如 <code>/api/chat</code> 或 Serverless 云函数），由服务端读取安全环境变量，杜绝客户端泄露风险。
+                </p>
+              </div>
             </div>
 
             {/* Supabase Database Card */}
             <div className="p-4 rounded-xl bg-white border border-zinc-200/80 space-y-2">
-              <div className="flex items-center gap-2 font-semibold text-zinc-900">
-                <Database className="w-4 h-4 text-emerald-600" />
-                <span>Supabase PostgreSQL 数据库</span>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 font-semibold text-zinc-900">
+                  <Database className="w-4 h-4 text-emerald-600" />
+                  <span>Supabase 云数据库对接</span>
+                </div>
+                <span className="text-[10px] text-sky-700 bg-sky-50 px-2 py-0.5 rounded font-medium border border-sky-100">
+                  标准 PostgreSQL
+                </span>
               </div>
               <p className="text-[11px] text-zinc-500 leading-relaxed">
-                只需使用 <code>@supabase/supabase-js</code>，把 <code>storage.ts</code> 内的 <code>localStorage</code> 替换为对应的数据表查询。
+                当前数据持久化于客户端 <code>localStorage</code>。升级云端时，将引入 <code>@supabase/supabase-js</code> 接管 <code>StorageService</code>。
               </p>
-              <input
-                type="text"
-                placeholder="https://xyzcompany.supabase.co (预留URL)"
-                value={supabaseUrl}
-                onChange={(e) => setSupabaseUrl(e.target.value)}
-                className="w-full px-3 py-1.5 bg-zinc-50 border border-zinc-200 rounded-lg text-xs font-mono"
-              />
+              <div className="p-2.5 rounded bg-zinc-50 border border-zinc-200/70 text-[11px] text-zinc-600 space-y-1">
+                <span className="font-semibold text-zinc-800 block">数据库安全策略：</span>
+                <p className="text-[10px] text-zinc-500 leading-normal">
+                  配合 Supabase 行级安全（RLS），保障各商户与客服的订单与知识库数据严格隔离。
+                </p>
+              </div>
             </div>
           </div>
         </div>

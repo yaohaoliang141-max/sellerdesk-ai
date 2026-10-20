@@ -1,4 +1,4 @@
-import { Order, Product, StorePolicies, StoreSettings, Message } from '../types';
+import type { Order, Product, StorePolicies, StoreSettings, Message } from '../types/index.ts';
 
 export interface GenerateReplyParams {
   customerQuery: string;
@@ -14,17 +14,18 @@ export interface GeneratedReplyResult {
   reasoningSteps: string[];
   intent: 'logistics' | 'return_refund' | 'product_inquiry' | 'urgent_shipping' | 'general';
   confidence: number;
+  requiresHumanReview: boolean;
 }
 
 export class AIEngineService {
   /**
-   * Generates a grounded reply suggestion based on customer query, order details,
-   * supplier purchase order status, product knowledge base, and store policies.
+   * Generates a strictly grounded reply suggestion based ONLY on verified order details,
+   * real supplier purchase order status, verified product knowledge base, and merchant policies.
    *
-   * ARCHITECTURE NOTE:
-   * To switch to DeepSeek AI API in v2:
-   * Replace the deterministic template logic below with a fetch to
-   * `https://api.deepseek.com/chat/completions` using Model `deepseek-chat` or `deepseek-reasoner`.
+   * Realism & Safety constraints:
+   * 1. NEVER invent unverified shipping times, delivery deadlines, or fake dates.
+   * 2. NEVER invent return addresses, phone numbers, or refund time limits not present in policies.
+   * 3. When information is missing or unverified, explicitly state that manual verification is required.
    */
   static generateReply(params: GenerateReplyParams): GeneratedReplyResult {
     const { customerQuery, order, product, policies, settings } = params;
@@ -34,25 +35,28 @@ export class AIEngineService {
     let reply = '';
     let intent: GeneratedReplyResult['intent'] = 'general';
     let confidence = 0.95;
+    let requiresHumanReview = false;
 
     // 1. Intent Recognition
-    const isLogistics = /物流|单号|发货|几天|多久|送到|快递|什么时候|在途|查单|进度/.test(query);
-    const isReturn = /退货|退款|换货|质量问题|退换|坏了|退款流程|退钱/.test(query);
-    const isProduct = /尺寸|材质|颜色|规格|怎么用|安装|有挂钩|质保|正品|电池|功能/.test(query);
+    const isLogistics = /物流|单号|发货|几天|多久|送到|快递|什么时候|在途|查单|进度|催发/.test(query);
+    const isReturn = /退货|退款|换货|质量问题|退换|坏了|退款流程|退钱|寄回|换一个/.test(query);
+    const isProduct =
+      /尺寸|材质|颜色|规格|怎么用|安装|有挂钩|质保|正品|电池|功能|收纳包|防水|防潮|参数|配件|说明|支持|适合|可以/.test(query) ||
+      Boolean((product || order) && !isLogistics && !isReturn && query.length > 2);
 
     // Tone modifiers
     const isWarm = settings.brandTone === 'warm';
     const isConcise = settings.brandTone === 'concise';
 
     const greeting = isWarm
-      ? `亲亲您好！我是${settings.storeName}的客服管家，非常高兴为您服务～`
+      ? `亲亲您好！我是${settings.storeName}的客服助手～`
       : `您好，感谢联系${settings.storeName}。`;
 
     const closing = isWarm
-      ? `如您有任何其他疑问，欢迎随时敲我，祝您生活愉快！❤️\n${settings.signature}`
+      ? `\n如需进一步协助，欢迎随时联系，祝您生活愉快！❤️\n${settings.signature}`
       : isConcise
       ? `\n${settings.signature}`
-      : `如您有任何疑问或需要进一步协助，请随时告知。\n${settings.signature}`;
+      : `\n如有其他疑问，请随时告知。\n${settings.signature}`;
 
     if (isLogistics || isReturn || isProduct) {
       if (isLogistics) intent = 'logistics';
@@ -60,112 +64,184 @@ export class AIEngineService {
       else intent = 'product_inquiry';
     }
 
-    // Logic based on Order and Procurement linkage
+    // 2. Logic based strictly on Order, Procurement, and Knowledge Base Policies
     if (intent === 'logistics') {
-      reasoningSteps.push('识别意图：【物流时效与发货进度咨询】');
+      reasoningSteps.push('识别意图：【物流与发货进度咨询】');
 
       if (order) {
         reasoningSteps.push(`读取销售订单 [${order.id}] 状态: ${this.getOrderStatusLabel(order.orderStatus)}`);
 
         if (order.purchaseOrder) {
           reasoningSteps.push(
-            `关联采购订单 [${order.purchaseOrder.id}]，供应商状态: ${this.getPurchaseStatusLabel(
+            `读取关联采购单 [${order.purchaseOrder.id}]，供应商状态: ${this.getPurchaseStatusLabel(
               order.purchaseOrder.status
             )} (${order.purchaseOrder.supplierName})`
           );
         }
 
         if (order.orderStatus === 'shipped') {
-          reasoningSteps.push('根据真实快递信息生成已发货答复');
+          reasoningSteps.push('订单已发货：严格仅引用已登记的承运商与运单号，不编造具体派送天数');
+          const carrier = order.shippingCarrier ? `【${order.shippingCarrier}】` : '快递公司';
+          const tracking = order.trackingNumber ? `运单号为：${order.trackingNumber}` : '运单号正在同步中';
+
           reply = `${greeting}
 关于您的订单（编号：${order.id}，商品：${order.productName}）：
-包裹已于近日通过【${order.shippingCarrier || '快递公司'}】发出，运单号为：${order.trackingNumber || '正在同步中'}。
-快件目前处于正常运输与派送中，通常在发货后 2-4 天内即可送达，请您保持电话畅通以便快递员派件。${closing}`;
+包裹已通过 ${carrier} 发出，${tracking}。
+快件具体送达时间受快递公司实际运输与天气情况影响，系统暂无到货时间承诺，建议您通过运单号关注实时物流轨迹。如需协助催件可联系人工客服跟进。${closing}`;
         } else if (order.orderStatus === 'paid_pending_shipment') {
-          if (order.purchaseOrder && order.purchaseOrder.status === 'procured_pending_shipment') {
-            reasoningSteps.push('严格依据事实：采购单显示【已采购，待发货】，坚决不虚构运单号');
+          if (order.purchaseOrder) {
+            reasoningSteps.push('订单待发货且有关联采购单：根据真实供应链状态回复，不承诺虚构的发货日期');
+            const pStatusText = this.getPurchaseStatusLabel(order.purchaseOrder.status);
+            const notesInfo = order.purchaseOrder.notes ? `\n供应商跟进记录：${order.purchaseOrder.notes}` : '';
+
             reply = `${greeting}
 关于您的订单（编号：${order.id}，商品：${order.productName}）：
-我们已核查后台协同系统，对应的工厂采购订单（单号：${order.purchaseOrder.id}）目前显示【已采购，待发货】状态。
-供应商（${order.purchaseOrder.supplierName}）正在加急完成质检与加固打包，预计将于今天/明天交接给物流公司发出。
-一旦运单号生成，系统将第一时间给您推送物流通知，请您放心等待！${closing}`;
+后台显示当前对应的采购单（单号：${order.purchaseOrder.id}）状态为【${pStatusText}】（供应商：${order.purchaseOrder.supplierName}）。${notesInfo}
+由于商品正在按工序备货质检，尚未交接给快递公司生成运单号，具体发出时效以供应商实际揽收为准。如您有紧急时效要求，建议由人工客服向供应商做进一步核实。${closing}`;
+            requiresHumanReview = true;
           } else {
-            reasoningSteps.push('订单已付款未发货，引用48小时发货政策');
+            reasoningSteps.push('订单已付款未发货且未关联采购单：读取知识库发货规则');
+            const policySummary = policies.shippingRules?.trim()
+              ? `\n本店发货规则说明：\n${policies.shippingRules.trim()}`
+              : '';
+
             reply = `${greeting}
 关于您的订单（编号：${order.id}，商品：${order.productName}）：
-目前订单正在仓库紧张配货与质检中。根据本店发货规则，所有订单均会在付款后 24-48 小时内发出。我们会为您备注优先加急打包发出！${closing}`;
+目前订单处于待发货状态。${policySummary || '\n具体备货与发货排期需由人工客服为您查询确认。'}
+一旦包裹打包并交接物流，我们将第一时间同步物流单号。${closing}`;
+            if (!policies.shippingRules?.trim()) {
+              requiresHumanReview = true;
+            }
           }
         } else if (order.orderStatus === 'delivered') {
-          reasoningSteps.push('核实订单已妥投签收');
+          reasoningSteps.push('订单已送达：依据系统妥投状态回复，不捏造配送过程');
+          const tracking = order.trackingNumber ? `（运单号：${order.trackingNumber}）` : '';
           reply = `${greeting}
-系统显示您的订单（编号：${order.id}，运单号：${order.trackingNumber || '顺丰速运'}）已妥投签收。
-请问您是否已顺利取到包裹？商品使用满意的话欢迎点赞好评，若有任何不满意或配件问题，请随时联系我们为您处理。${closing}`;
+系统记录显示您的订单（编号：${order.id}${tracking}）已妥投签收。
+请确认您是否已顺利收到包裹。如未收到或包裹存在破损，请联系人工客服协助核查派送情况。${closing}`;
         } else {
+          reasoningSteps.push(`订单状态为 [${order.orderStatus}]，如实说明当前状态`);
           reply = `${greeting}
-您的订单（编号：${order.id}）当前状态为【${this.getOrderStatusLabel(order.orderStatus)}】。我们正在持续跟进最新处理动态。${closing}`;
+您的订单（编号：${order.id}）当前状态为【${this.getOrderStatusLabel(order.orderStatus)}】。如有特殊进度要求，人工客服可为您具体核查。${closing}`;
         }
       } else {
-        reasoningSteps.push('未关联特定订单，调用通用发货规则');
+        reasoningSteps.push('未选择或未关联具体订单：读取知识库通用发货规则，声明需订单号确认');
+        const policyText = policies.shippingRules?.trim()
+          ? `本店参考发货规则：\n${policies.shippingRules.trim()}\n\n`
+          : '';
+
         reply = `${greeting}
-本店常规现货订单在付款后 24-48 小时内按顺序完成质检并发出，江浙沪及核心城市通常发出后 1-2 天送达，其他地区 2-4 天送达。
-如需查询具体订单进展，请向客服提供您的订单编号（例如：XY-1001），我们将立即为您追踪！${closing}`;
+${policyText}如需查询特定订单的发货与运输进展，请提供您的销售订单编号（例如：XY-1001），以便核对准确的备货与物流信息。${closing}`;
+        requiresHumanReview = true;
       }
     } else if (intent === 'return_refund') {
-      reasoningSteps.push('识别意图：【售后退换与退款政策咨询】');
-      reasoningSteps.push('检索商家知识库【退换货政策】与客户订单状态');
+      reasoningSteps.push('识别意图：【退换货与退款政策咨询】');
+      reasoningSteps.push('真实读取商家知识库【退换货政策】，杜绝编造退货地址、电话与退款时限');
+
+      const merchantReturnPolicy = policies.returnPolicy?.trim();
 
       if (order && order.orderStatus === 'refund_requested') {
-        reply = `${greeting}
-看到您提交了订单（${order.id}）的退换货申请。
-我们的售后团队已经为您开通绿色退货通道！
-退货指引：
-1. 请确保商品外包装及配件齐全（不影响二次销售）；
-2. 寄回地址：上海市青浦区仓储物流园 B 区 3 号门 售后组（电话：400-800-8899）；
-3. 寄出后请将回邮快递单号发给我们在系统登记，仓库核验无误后将在 24 小时内全额原路退款。${closing}`;
+        reasoningSteps.push('订单已处于申请退款状态：依据商家设置的政策解答，不编造未经证实的地址或时限');
+
+        if (merchantReturnPolicy) {
+          reply = `${greeting}
+已查看到您的订单（编号：${order.id}）目前处于申请退换状态。
+根据本店已公示的售后政策：
+${merchantReturnPolicy}
+
+【特别提醒】为保障退件顺利入库与退款审核，具体的退货收件人姓名、退货仓库地址及电话需由人工客服审核后向您提供，请暂勿自行寄出。寄出后请将回邮单号告知我们以便登记。${closing}`;
+        } else {
+          reasoningSteps.push('知识库中未配置退换货政策：提示需人工确认');
+          reply = `${greeting}
+已查看到您的订单（编号：${order.id}）提交了退换货申请。
+由于具体退货地址、时效要求及退款流程需结合商品实际情况确认，人工客服将尽快为您审核并提供详细的退货指引，请稍候。${closing}`;
+          requiresHumanReview = true;
+        }
       } else {
-        reply = `${greeting}
-本店支持签收后【7天无理由退换货】保障！
-- 若属于尺寸/拍错等个人喜好原因，只要商品未拆封使用且配件完好，均可办理退换；
-- 若收到时存在运输磕碰破损或质量问题，拍照留存联系客服，运费由本店全额承担并极速补发。
-如果您需要办理退换，请确认您的订单编号，我们将立即为您出具退货地址与指引。${closing}`;
+        reasoningSteps.push('常规退换政策咨询：如实展示商家设置的退换规则');
+        if (merchantReturnPolicy) {
+          reply = `${greeting}
+关于本店退换货规定，请参考已公布的售后政策：
+${merchantReturnPolicy}
+
+如需对具体订单办理退换货，请提供您的订单编号，我们将由人工客服为您核实是否符合退换条件并出具退货地址指引。${closing}`;
+        } else {
+          reasoningSteps.push('知识库无退换政策：明确说明需要人工确认');
+          reply = `${greeting}
+关于退换货与退款规定，相关政策细节需由人工客服根据具体商品品类为您核实确认。请提供您的订单编号或意向商品，我们将由人工客服为您解答。${closing}`;
+          requiresHumanReview = true;
+        }
       }
     } else if (intent === 'product_inquiry') {
-      reasoningSteps.push('识别意图：【商品属性、材质、规格与安装咨询】');
+      reasoningSteps.push('识别意图：【商品属性、材质、规格与功能咨询】');
 
       const targetProduct = product || (order ? { name: order.productName, specs: '', faqList: [] } : undefined);
 
       if (targetProduct) {
-        reasoningSteps.push(`从商品知识库检索 [${targetProduct.name}] 相关参数`);
-        // Check matched FAQ
-        let matchedFaq = '';
+        reasoningSteps.push(`检索商品 [${targetProduct.name}] 知识库信息`);
+        let hasExactMatch = false;
+        let matchedFaqText = '';
+
+        // Match FAQ
         if ('faqList' in targetProduct && targetProduct.faqList && targetProduct.faqList.length > 0) {
-          const match = targetProduct.faqList.find(f => query.includes(f.question.slice(0, 3)) || f.question.includes('材质') || f.question.includes('安装'));
+          const match = targetProduct.faqList.find(f => {
+            const q = f.question.toLowerCase();
+            return query.includes(q.slice(0, 3)) ||
+              (query.includes('材质') && q.includes('材质')) ||
+              (query.includes('安装') && q.includes('安装')) ||
+              (query.includes('挂钩') && q.includes('挂钩')) ||
+              (query.includes('收纳') && q.includes('收纳')) ||
+              (query.includes('电池') && q.includes('电池')) ||
+              (query.includes('双设备') && q.includes('电脑'));
+          });
+
           if (match) {
-            matchedFaq = `\n解答参考：${match.answer}`;
-            reasoningSteps.push(`命中知识库条目：${match.question}`);
+            hasExactMatch = true;
+            matchedFaqText = `\n【参考解答】${match.answer}`;
+            reasoningSteps.push(`知识库成功命中精准问答条目：${match.question}`);
           }
         }
 
-        const specsText = ('specs' in targetProduct && targetProduct.specs) ? `\n官方规格：${targetProduct.specs}` : '';
+        const isQueryRelatedToSpecs = /尺寸|大小|长宽|规格|参数|属性|材质|配件|外框|挂钩|重量|接口|多少厘米/.test(query);
+        const specsText = ('specs' in targetProduct && targetProduct.specs?.trim())
+          ? `\n【商品规格】${targetProduct.specs.trim()}`
+          : '';
 
-        reply = `${greeting}
-关于【${targetProduct.name}】：${specsText}${matchedFaq || '\n这款商品深受客户喜爱，出厂经过严格品质检验，包装内配备完整的使用指引与配件。'}
-如果您对具体尺寸、安装或使用方法还有特别要求，欢迎随时告知！${closing}`;
+        if (specsText && isQueryRelatedToSpecs) {
+          hasExactMatch = true;
+          reasoningSteps.push('知识库成功匹配商品规格参数');
+        }
+
+        if (hasExactMatch) {
+          reply = `${greeting}
+关于【${targetProduct.name}】的相关信息：${specsText}${matchedFaqText}
+如需了解更多未列明的参数细节或特殊定制要求，建议由人工客服进一步为您确认。${closing}`;
+        } else {
+          reasoningSteps.push('知识库中未找到该商品对应问题的确切记载，明确需要人工确认，不编造功能');
+          reply = `${greeting}
+关于【${targetProduct.name}】：
+对于您所咨询的具体细节，当前商品知识库中暂未收录确切说明。为避免提供不准确信息，该问题需由人工客服核对实物或联系供货商后为您答复，请您稍候。${closing}`;
+          requiresHumanReview = true;
+        }
       } else {
+        reasoningSteps.push('未匹配到具体商品信息，提示需人工客服协助');
         reply = `${greeting}
-关于您咨询的商品细节：本店所有在售商品均为官方正品直供，支持质保与无忧售后。请问您想要了解的是哪款商品的具体参数或使用场景呢？${closing}`;
+请问您想要咨询的是哪款商品的具体规格或使用方法？您可以提供商品名称或订单号，人工客服将为您查阅准确的产品资料。${closing}`;
+        requiresHumanReview = true;
       }
     } else {
-      reasoningSteps.push('未匹配到特定行业模板，生成通用礼貌应答');
+      reasoningSteps.push('通用问询或未匹配特定意图：生成礼貌应答，不作任何无依据承诺');
       reply = `${greeting}
-收到您的消息！请问有什么可以帮您？如果是关于已购买订单的疑问，请提供订单号，我们将第一时间为您核实解决。${closing}`;
+收到您的留言。请问有什么具体问题需要协助？如果是关于已有订单的疑问，请提供订单编号，人工客服将为您具体核查并处理。${closing}`;
+      requiresHumanReview = true;
     }
 
     return {
       replyText: reply.trim(),
       reasoningSteps,
       intent,
-      confidence
+      confidence,
+      requiresHumanReview,
     };
   }
 

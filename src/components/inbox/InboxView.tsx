@@ -156,7 +156,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
     setAiResult(null);
     setEditedReply('');
     setCustomerQueryInput('');
-    onShowToast('回复已确认发出，会话已标记为已处理！', 'success');
+    onShowToast('模拟回复已保存至本地聊天记录，会话已标记为已处理', 'success');
   };
 
   // Send a quick direct reply
@@ -185,7 +185,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
 
     onUpdateConversations(updatedConvs);
     setDirectInput('');
-    onShowToast('消息已发送', 'success');
+    onShowToast('模拟回复已添加至本地聊天记录', 'success');
   };
 
   // Filter conversations
@@ -510,10 +510,11 @@ export const InboxView: React.FC<InboxViewProps> = ({
 
                   <button
                     onClick={handleConfirmAndSend}
-                    className="inline-flex items-center gap-1 text-[11px] text-white bg-zinc-900 hover:bg-zinc-800 px-3 py-1 rounded-md font-semibold transition-colors shadow-2xs"
+                    className="inline-flex items-center gap-1.5 text-[11px] text-white bg-zinc-900 hover:bg-zinc-800 px-3 py-1.5 rounded-md font-semibold transition-colors shadow-2xs"
+                    title="在本地保存此条客服回复记录（不会向真实买家平台发送消息）"
                   >
-                    <Send className="w-3 h-3" />
-                    <span>确认并发送</span>
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>保存模拟回复</span>
                   </button>
                 </div>
               </div>
@@ -562,10 +563,11 @@ export const InboxView: React.FC<InboxViewProps> = ({
               />
               <button
                 onClick={handleSendDirect}
-                className="px-3.5 py-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shrink-0"
+                className="px-3.5 py-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shrink-0"
+                title="保存模拟回复记录"
               >
-                <Send className="w-3 h-3" />
-                <span>发送</span>
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                <span>保存回复</span>
               </button>
             </div>
           )}
