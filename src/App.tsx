@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Layout } from './components/layout/Layout';
 import { TabType } from './components/layout/Sidebar';
 import { OverviewView } from './components/overview/OverviewView';
@@ -22,6 +22,11 @@ export const App: React.FC = () => {
   );
   const [policies, setPolicies] = useState<StorePolicies>(() => StorageService.getPolicies());
   const [settings, setSettings] = useState<StoreSettings>(() => StorageService.getSettings());
+
+  // Navigation context for AI Inbox
+  const [activeInboxConvId, setActiveInboxConvId] = useState<string>(
+    conversations[0]?.id || ''
+  );
 
   // Global Toast State
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -72,7 +77,9 @@ export const App: React.FC = () => {
       StorageService.resetAll();
       setOrders(StorageService.getOrders());
       setProducts(StorageService.getProducts());
-      setConversations(StorageService.getConversations());
+      const resetConvs = StorageService.getConversations();
+      setConversations(resetConvs);
+      setActiveInboxConvId(resetConvs[0]?.id || '');
       setPolicies(StorageService.getPolicies());
       setSettings(StorageService.getSettings());
       showToast('演示数据已重置至初始状态', 'info');
@@ -100,7 +107,36 @@ export const App: React.FC = () => {
     showToast('数据已导出为 JSON 备份文件', 'success');
   };
 
-  const pendingInboxCount = conversations.filter((c) => c.status === 'pending').length;
+  // Seamless flow: Order -> Customer Conversation
+  const handleGoToInbox = (order: Order) => {
+    const existingConv = conversations.find((c) => c.orderId === order.id);
+    if (existingConv) {
+      setActiveInboxConvId(existingConv.id);
+      setCurrentTab('inbox');
+      showToast(`已打开订单 ${order.id} 的对应客服工单`, 'info');
+    } else {
+      // Create a brand new clean blank mock conversation (no fake customer queries!)
+      const newConv: Conversation = {
+        id: `conv-${Date.now()}`,
+        orderId: order.id,
+        customerName: order.customerName,
+        customerEmail: order.customerEmail,
+        status: 'pending',
+        lastMessage: '新客服工单（待录入客户咨询）',
+        updatedAt: '刚刚',
+        messages: [],
+      };
+      const updatedConvs = [newConv, ...conversations];
+      handleUpdateConversations(updatedConvs);
+      setActiveInboxConvId(newConv.id);
+      setCurrentTab('inbox');
+      showToast(`已为订单 ${order.id} 建立客服工单并进入会话`, 'success');
+    }
+  };
+
+  const pendingInboxCount = conversations.filter(
+    (c) => c.status === 'pending' || c.status === 'in_progress'
+  ).length;
 
   return (
     <Layout
@@ -117,6 +153,7 @@ export const App: React.FC = () => {
           orders={orders}
           conversations={conversations}
           onNavigate={setCurrentTab}
+          onGoToInbox={handleGoToInbox}
         />
       )}
 
@@ -127,6 +164,8 @@ export const App: React.FC = () => {
           products={products}
           policies={policies}
           settings={settings}
+          activeConvId={activeInboxConvId}
+          onSelectConversation={setActiveInboxConvId}
           onUpdateConversations={handleUpdateConversations}
           onOpenOrderModal={(order) => setActiveModalOrder(order)}
           onShowToast={showToast}
@@ -136,8 +175,10 @@ export const App: React.FC = () => {
       {currentTab === 'orders' && (
         <OrdersView
           orders={orders}
+          products={products}
           onUpdateOrders={handleUpdateOrders}
           onNavigate={setCurrentTab}
+          onGoToInbox={handleGoToInbox}
           onShowToast={showToast}
         />
       )}
@@ -167,6 +208,7 @@ export const App: React.FC = () => {
         isOpen={!!activeModalOrder}
         onClose={() => setActiveModalOrder(null)}
         order={activeModalOrder}
+        products={products}
         onSaveOrder={(updated) => {
           handleUpdateOrders(orders.map((o) => (o.id === updated.id ? updated : o)));
           showToast(`订单 ${updated.id} 已更新`, 'success');

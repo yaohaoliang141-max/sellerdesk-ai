@@ -87,3 +87,12 @@ export interface StoreSettings {
   notifyEmail: string;
   currencySymbol: string;
 }
+
+export interface GeneratedReplyResult {
+  replyText: string;
+  reasoningSteps: string[];
+  intent: 'logistics' | 'return_refund' | 'product_inquiry' | 'urgent_shipping' | 'general';
+  confidence: number;
+  requiresHumanReview: boolean;
+  reviewReasons: string[];
+}

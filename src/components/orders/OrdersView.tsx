@@ -10,9 +10,10 @@ import {
   ChevronRight,
   ExternalLink,
   ShieldCheck,
-  Check
+  Check,
+  AlertCircle
 } from 'lucide-react';
-import { Order, OrderStatus } from '../../types';
+import { Order, OrderStatus, Product } from '../../types';
 import { Badge } from '../common/Badge';
 import { OrderModal } from './OrderModal';
 import { Modal } from '../common/Modal';
@@ -21,15 +22,19 @@ import { AIEngineService } from '../../services/aiEngine';
 
 interface OrdersViewProps {
   orders: Order[];
+  products: Product[];
   onUpdateOrders: (orders: Order[]) => void;
   onNavigate: (tab: TabType) => void;
+  onGoToInbox: (order: Order) => void;
   onShowToast: (text: string, type?: 'success' | 'error' | 'info') => void;
 }
 
 export const OrdersView: React.FC<OrdersViewProps> = ({
   orders,
+  products,
   onUpdateOrders,
   onNavigate,
+  onGoToInbox,
   onShowToast,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -38,56 +43,115 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   const [isNewOrderModalOpen, setIsNewOrderModalOpen] = useState(false);
 
   // New Order Form state
+  const defaultProduct = products[0];
+  const [selectedProductId, setSelectedProductId] = useState<string>(
+    defaultProduct?.id || 'custom'
+  );
+
   const [newOrderForm, setNewOrderForm] = useState({
     id: `XY-${Math.floor(1000 + Math.random() * 9000)}`,
     customerName: '',
     customerEmail: '',
     customerPhone: '',
     customerAddress: '',
-    productName: '复古装饰画',
+    productId: defaultProduct?.id || '',
+    productName: defaultProduct?.name || '复古装饰画',
     quantity: 1,
-    amount: 168.0,
+    amount: defaultProduct ? defaultProduct.price : 168.0,
     orderStatus: 'paid_pending_shipment' as OrderStatus,
     purchaseOrderId: `CG-${Math.floor(7000 + Math.random() * 1000)}`,
     supplierName: '杭州艺景工坊家居供应链',
     purchaseStatus: 'procured_pending_shipment' as const,
-    costAmount: 52.0,
-    supplierNotes: '工厂已确认接单，待出库'
+    costAmount: defaultProduct ? defaultProduct.cost : 52.0,
+    supplierNotes: '工厂已确认接单，排期备货中',
   });
+
+  const handleProductSelectionChange = (prodId: string) => {
+    setSelectedProductId(prodId);
+    if (prodId === 'custom') {
+      setNewOrderForm((prev) => ({
+        ...prev,
+        productId: '',
+        productName: '',
+      }));
+    } else {
+      const match = products.find((p) => p.id === prodId);
+      if (match) {
+        setNewOrderForm((prev) => ({
+          ...prev,
+          productId: match.id,
+          productName: match.name,
+          amount: match.price * prev.quantity,
+          costAmount: match.cost * prev.quantity,
+        }));
+      }
+    }
+  };
 
   const handleCreateOrder = (e: React.FormEvent) => {
     e.preventDefault();
+
+    const cleanOrderId = newOrderForm.id.trim();
+    if (!cleanOrderId) {
+      onShowToast('请输入销售订单号', 'error');
+      return;
+    }
+
+    // Check for duplicate sales order ID
+    const isDuplicate = orders.some(
+      (o) => o.id.trim().toUpperCase() === cleanOrderId.toUpperCase()
+    );
+    if (isDuplicate) {
+      onShowToast(`销售订单号 [${cleanOrderId}] 已存在，请更换为唯一的订单号`, 'error');
+      return;
+    }
+
     if (!newOrderForm.customerName.trim()) {
       onShowToast('请填写客户姓名', 'error');
       return;
     }
 
+    if (!newOrderForm.productName.trim()) {
+      onShowToast('请填写或选择商品名称', 'error');
+      return;
+    }
+
+    // Determine correct productId
+    let finalProductId = newOrderForm.productId;
+    if (selectedProductId !== 'custom') {
+      const matched = products.find((p) => p.id === selectedProductId);
+      finalProductId = matched ? matched.id : '';
+    } else {
+      // For custom product not in knowledge base, NEVER link to prod-001
+      finalProductId = '';
+    }
+
     const created: Order = {
-      id: newOrderForm.id,
-      customerName: newOrderForm.customerName,
-      customerEmail: newOrderForm.customerEmail || `${newOrderForm.customerName}@example.com`,
-      customerPhone: newOrderForm.customerPhone || '138****0000',
-      customerAddress: newOrderForm.customerAddress || '上海市浦东新区示例地址',
-      productId: 'prod-001',
-      productName: newOrderForm.productName,
-      quantity: Number(newOrderForm.quantity),
-      amount: Number(newOrderForm.amount),
+      id: cleanOrderId,
+      customerName: newOrderForm.customerName.trim(),
+      customerEmail: newOrderForm.customerEmail.trim() || `${newOrderForm.customerName.trim()}@example.com`,
+      customerPhone: newOrderForm.customerPhone.trim() || '138****0000',
+      customerAddress: newOrderForm.customerAddress.trim() || '上海市浦东新区张江高科示例地址',
+      productId: finalProductId,
+      productName: newOrderForm.productName.trim(),
+      quantity: Number(newOrderForm.quantity) || 1,
+      amount: Number(newOrderForm.amount) || 0,
       currency: '¥',
       orderStatus: newOrderForm.orderStatus,
       createdAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
       purchaseOrder: {
-        id: newOrderForm.purchaseOrderId,
-        supplierName: newOrderForm.supplierName,
+        id: newOrderForm.purchaseOrderId.trim() || `CG-${Math.floor(7000 + Math.random() * 1000)}`,
+        supplierName: newOrderForm.supplierName.trim() || '默认供应链工厂',
         status: newOrderForm.purchaseStatus,
-        costAmount: Number(newOrderForm.costAmount),
-        notes: newOrderForm.supplierNotes,
-        updatedAt: new Date().toISOString()
-      }
+        costAmount: Number(newOrderForm.costAmount) || 0,
+        notes: newOrderForm.supplierNotes.trim(),
+        updatedAt: new Date().toISOString(),
+      },
     };
 
     onUpdateOrders([created, ...orders]);
     setIsNewOrderModalOpen(false);
-    onShowToast(`新订单 ${created.id} 已创建并关联采购单 ${created.purchaseOrder?.id}`, 'success');
+    onShowToast(`新订单 ${created.id} 已创建并关联商品 [${created.productName}]`, 'success');
   };
 
   const handleSaveOrder = (updated: Order) => {
@@ -124,10 +188,24 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
 
         <button
           onClick={() => {
+            const freshProd = products[0];
+            setSelectedProductId(freshProd ? freshProd.id : 'custom');
             setNewOrderForm({
-              ...newOrderForm,
               id: `XY-${Math.floor(1000 + Math.random() * 9000)}`,
+              customerName: '',
+              customerEmail: '',
+              customerPhone: '',
+              customerAddress: '',
+              productId: freshProd ? freshProd.id : '',
+              productName: freshProd ? freshProd.name : '',
+              quantity: 1,
+              amount: freshProd ? freshProd.price : 99.0,
+              orderStatus: 'paid_pending_shipment' as OrderStatus,
               purchaseOrderId: `CG-${Math.floor(7000 + Math.random() * 1000)}`,
+              supplierName: '杭州艺景工坊家居供应链',
+              purchaseStatus: 'procured_pending_shipment' as const,
+              costAmount: freshProd ? freshProd.cost : 30.0,
+              supplierNotes: '工厂已排产接单，排期备货中',
             });
             setIsNewOrderModalOpen(true);
           }}
@@ -199,120 +277,137 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                   </td>
                 </tr>
               ) : (
-                filteredOrders.map((order) => (
-                  <tr key={order.id} className="hover:bg-zinc-50/70 transition-colors group">
-                    {/* Sales Order ID */}
-                    <td className="px-5 py-4 font-mono font-semibold text-zinc-900">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-sky-700 bg-sky-50 px-1.5 py-0.5 rounded border border-sky-100">
-                          {order.id}
-                        </span>
-                      </div>
-                      <div className="text-[10px] text-zinc-400 font-sans mt-0.5">
-                        {order.createdAt.split(' ')[0]}
-                      </div>
-                    </td>
+                filteredOrders.map((order) => {
+                  const linkedProd = products.find(
+                    (p) => p.id === order.productId || p.name === order.productName
+                  );
 
-                    {/* Customer Info */}
-                    <td className="px-5 py-4">
-                      <div className="font-medium text-zinc-900">{order.customerName}</div>
-                      <div className="text-[10px] text-zinc-400 font-mono">{order.customerPhone}</div>
-                    </td>
-
-                    {/* Product */}
-                    <td className="px-5 py-4 max-w-[200px]">
-                      <div className="font-medium text-zinc-800 truncate" title={order.productName}>
-                        {order.productName}
-                      </div>
-                      <div className="text-[10px] text-zinc-400">数量: ×{order.quantity}</div>
-                    </td>
-
-                    {/* Sales Status */}
-                    <td className="px-5 py-4">
-                      <Badge
-                        variant={
-                          order.orderStatus === 'delivered'
-                            ? 'emerald'
-                            : order.orderStatus === 'shipped'
-                            ? 'blue'
-                            : order.orderStatus === 'refund_requested'
-                            ? 'rose'
-                            : 'amber'
-                        }
-                      >
-                        {AIEngineService.getOrderStatusLabel(order.orderStatus)}
-                      </Badge>
-                      {order.trackingNumber && (
-                        <div className="text-[10px] text-zinc-400 font-mono mt-1 truncate max-w-[120px]">
-                          {order.shippingCarrier}: {order.trackingNumber}
+                  return (
+                    <tr key={order.id} className="hover:bg-zinc-50/70 transition-colors group">
+                      {/* Sales Order ID */}
+                      <td className="px-5 py-4 font-mono font-semibold text-zinc-900">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-sky-700 bg-sky-50 px-1.5 py-0.5 rounded border border-sky-100">
+                            {order.id}
+                          </span>
                         </div>
-                      )}
-                    </td>
+                        <div className="text-[10px] text-zinc-400 font-sans mt-0.5">
+                          {order.createdAt.split(' ')[0]}
+                        </div>
+                      </td>
 
-                    {/* Linked Purchase Order */}
-                    <td className="px-5 py-4">
-                      {order.purchaseOrder ? (
-                        <div>
-                          <div className="flex items-center gap-1">
-                            <Truck className="w-3.5 h-3.5 text-amber-600" />
-                            <span className="font-mono font-bold text-amber-900 bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200/60">
-                              {order.purchaseOrder.id}
+                      {/* Customer Info */}
+                      <td className="px-5 py-4">
+                        <div className="font-medium text-zinc-900">{order.customerName}</div>
+                        <div className="text-[10px] text-zinc-400 font-mono">{order.customerPhone}</div>
+                      </td>
+
+                      {/* Product */}
+                      <td className="px-5 py-4 max-w-[200px]">
+                        <div className="font-medium text-zinc-800 truncate" title={order.productName}>
+                          {order.productName}
+                        </div>
+                        <div className="flex items-center gap-1 text-[10px] text-zinc-400 mt-0.5">
+                          <span>数量: ×{order.quantity}</span>
+                          {linkedProd ? (
+                            <span className="text-sky-600 bg-sky-50 px-1 rounded text-[9px]">
+                              已关联知识库
                             </span>
-                          </div>
-                          <div className="text-[10px] text-zinc-500 mt-0.5 truncate max-w-[140px]">
-                            {order.purchaseOrder.supplierName}
-                          </div>
+                          ) : (
+                            <span className="text-zinc-400 bg-zinc-100 px-1 rounded text-[9px]">
+                              自定义商品
+                            </span>
+                          )}
                         </div>
-                      ) : (
-                        <span className="text-zinc-400 text-xs">无采购协同</span>
-                      )}
-                    </td>
+                      </td>
 
-                    {/* Purchase Status */}
-                    <td className="px-5 py-4">
-                      {order.purchaseOrder ? (
-                        <span className="text-[11px] font-medium text-zinc-700 bg-zinc-100 px-2 py-0.5 rounded">
-                          {AIEngineService.getPurchaseStatusLabel(order.purchaseOrder.status)}
-                        </span>
-                      ) : (
-                        <span className="text-zinc-400">-</span>
-                      )}
-                    </td>
+                      {/* Sales Status */}
+                      <td className="px-5 py-4">
+                        <Badge
+                          variant={
+                            order.orderStatus === 'delivered'
+                              ? 'emerald'
+                              : order.orderStatus === 'shipped'
+                              ? 'blue'
+                              : order.orderStatus === 'refund_requested'
+                              ? 'rose'
+                              : 'amber'
+                          }
+                        >
+                          {AIEngineService.getOrderStatusLabel(order.orderStatus)}
+                        </Badge>
+                        {order.trackingNumber && (
+                          <div className="text-[10px] text-zinc-400 font-mono mt-1 truncate max-w-[120px]">
+                            {order.shippingCarrier}: {order.trackingNumber}
+                          </div>
+                        )}
+                      </td>
 
-                    {/* Amount */}
-                    <td className="px-5 py-4 text-right">
-                      <div className="font-bold text-zinc-900">
-                        {order.currency}{order.amount.toFixed(2)}
-                      </div>
-                      {order.purchaseOrder && (
-                        <div className="text-[10px] text-zinc-400 font-mono">
-                          成本: ¥{order.purchaseOrder.costAmount.toFixed(2)}
+                      {/* Linked Purchase Order */}
+                      <td className="px-5 py-4">
+                        {order.purchaseOrder ? (
+                          <div>
+                            <div className="flex items-center gap-1">
+                              <Truck className="w-3.5 h-3.5 text-amber-600" />
+                              <span className="font-mono font-bold text-amber-900 bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200/60">
+                                {order.purchaseOrder.id}
+                              </span>
+                            </div>
+                            <div className="text-[10px] text-zinc-500 mt-0.5 truncate max-w-[140px]">
+                              {order.purchaseOrder.supplierName}
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-zinc-400 text-xs">无采购协同</span>
+                        )}
+                      </td>
+
+                      {/* Purchase Status */}
+                      <td className="px-5 py-4">
+                        {order.purchaseOrder ? (
+                          <span className="text-[11px] font-medium text-zinc-700 bg-zinc-100 px-2 py-0.5 rounded">
+                            {AIEngineService.getPurchaseStatusLabel(order.purchaseOrder.status)}
+                          </span>
+                        ) : (
+                          <span className="text-zinc-400">-</span>
+                        )}
+                      </td>
+
+                      {/* Amount */}
+                      <td className="px-5 py-4 text-right">
+                        <div className="font-bold text-zinc-900">
+                          {order.currency}{order.amount.toFixed(2)}
                         </div>
-                      )}
-                    </td>
+                        {order.purchaseOrder && (
+                          <div className="text-[10px] text-zinc-400 font-mono">
+                            成本: ¥{order.purchaseOrder.costAmount.toFixed(2)}
+                          </div>
+                        )}
+                      </td>
 
-                    {/* Actions */}
-                    <td className="px-5 py-4 text-center">
-                      <div className="flex items-center justify-center gap-1.5">
-                        <button
-                          onClick={() => setEditingOrder(order)}
-                          className="p-1.5 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded-lg transition-colors"
-                          title="编辑订单与采购单"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
+                      {/* Actions */}
+                      <td className="px-5 py-4 text-center">
+                        <div className="flex items-center justify-center gap-1.5">
+                          <button
+                            onClick={() => setEditingOrder(order)}
+                            className="p-1.5 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded-lg transition-colors"
+                            title="编辑订单与采购单"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
 
-                        <button
-                          onClick={() => onNavigate('inbox')}
-                          className="p-1.5 text-sky-600 hover:text-sky-800 hover:bg-sky-50 rounded-lg transition-colors"
-                          title="前往客服沟通"
-                        >
-                          <MessageSquare className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                          <button
+                            onClick={() => onGoToInbox(order)}
+                            className="p-1.5 text-sky-600 hover:text-sky-800 hover:bg-sky-50 rounded-lg transition-colors"
+                            title="前往客服会话处理此订单"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -324,6 +419,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
         isOpen={!!editingOrder}
         onClose={() => setEditingOrder(null)}
         order={editingOrder}
+        products={products}
         onSaveOrder={handleSaveOrder}
       />
 
@@ -332,18 +428,19 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
         isOpen={isNewOrderModalOpen}
         onClose={() => setIsNewOrderModalOpen(false)}
         title="创建新测试销售订单"
-        subtitle="自动关联供应商采购协同单，用于测试客服 AI 答复"
+        subtitle="从知识库选取或自定义商品，并自动关联供应商采购协同单"
         maxWidth="max-w-xl"
       >
         <form onSubmit={handleCreateOrder} className="space-y-4 text-xs">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-zinc-700 font-medium mb-1">销售单号</label>
+              <label className="block text-zinc-700 font-medium mb-1">销售单号 (唯一)</label>
               <input
                 type="text"
                 value={newOrderForm.id}
                 onChange={(e) => setNewOrderForm({ ...newOrderForm, id: e.target.value })}
                 className="w-full px-3 py-2 bg-white text-zinc-800 border border-zinc-200 rounded-lg font-mono focus:outline-none"
+                required
               />
             </div>
 
@@ -359,6 +456,22 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
               />
             </div>
 
+            <div className="col-span-2">
+              <label className="block text-zinc-700 font-medium mb-1">从知识库选择商品</label>
+              <select
+                value={selectedProductId}
+                onChange={(e) => handleProductSelectionChange(e.target.value)}
+                className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-lg text-zinc-800 focus:bg-white focus:outline-none"
+              >
+                <option value="custom">-- 自定义商品 (未录入知识库) --</option>
+                {products.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    [{p.sku}] {p.name} (售价: ¥{p.price.toFixed(2)})
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <div>
               <label className="block text-zinc-700 font-medium mb-1">商品名称</label>
               <input
@@ -366,22 +479,62 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                 value={newOrderForm.productName}
                 onChange={(e) => setNewOrderForm({ ...newOrderForm, productName: e.target.value })}
                 className="w-full px-3 py-2 bg-white text-zinc-800 border border-zinc-200 rounded-lg focus:outline-none"
+                placeholder="商品名称"
+                required
               />
             </div>
 
             <div>
-              <label className="block text-zinc-700 font-medium mb-1">订单金额 (元)</label>
+              <label className="block text-zinc-700 font-medium mb-1">购买数量</label>
               <input
                 type="number"
+                min="1"
+                value={newOrderForm.quantity}
+                onChange={(e) => {
+                  const qty = parseInt(e.target.value) || 1;
+                  const match = products.find((p) => p.id === selectedProductId);
+                  const uPrice = match ? match.price : newOrderForm.amount / (newOrderForm.quantity || 1);
+                  const uCost = match ? match.cost : newOrderForm.costAmount / (newOrderForm.quantity || 1);
+                  setNewOrderForm({
+                    ...newOrderForm,
+                    quantity: qty,
+                    amount: uPrice * qty,
+                    costAmount: uCost * qty,
+                  });
+                }}
+                className="w-full px-3 py-2 bg-white text-zinc-800 border border-zinc-200 rounded-lg focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-zinc-700 font-medium mb-1">销售金额 (元)</label>
+              <input
+                type="number"
+                step="0.01"
                 value={newOrderForm.amount}
                 onChange={(e) => setNewOrderForm({ ...newOrderForm, amount: parseFloat(e.target.value) || 0 })}
                 className="w-full px-3 py-2 bg-white text-zinc-800 border border-zinc-200 rounded-lg focus:outline-none"
               />
             </div>
+
+            <div>
+              <label className="block text-zinc-700 font-medium mb-1">销售订单状态</label>
+              <select
+                value={newOrderForm.orderStatus}
+                onChange={(e) => setNewOrderForm({ ...newOrderForm, orderStatus: e.target.value as OrderStatus })}
+                className="w-full px-3 py-2 bg-white text-zinc-800 border border-zinc-200 rounded-lg focus:outline-none"
+              >
+                <option value="paid_pending_shipment">已付款待发货</option>
+                <option value="pending_payment">待付款</option>
+                <option value="shipped">已发货运输中</option>
+                <option value="delivered">已签收</option>
+                <option value="refund_requested">申请退款退换</option>
+              </select>
+            </div>
           </div>
 
           <div className="p-3 rounded-lg bg-amber-50/60 border border-amber-200/60 space-y-2">
-            <span className="font-semibold text-zinc-900 block">协同供应商采购单配置:</span>
+            <span className="font-semibold text-zinc-900 block">协同供应商采购单配置 (商家内部可见):</span>
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="block text-zinc-500 text-[11px] mb-0.5">采购单号</label>
@@ -404,6 +557,25 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                   <option value="supplier_processing">供应商制单中</option>
                   <option value="warehouse_received">中转仓已质检</option>
                 </select>
+              </div>
+              <div>
+                <label className="block text-zinc-500 text-[11px] mb-0.5">供应商名称</label>
+                <input
+                  type="text"
+                  value={newOrderForm.supplierName}
+                  onChange={(e) => setNewOrderForm({ ...newOrderForm, supplierName: e.target.value })}
+                  className="w-full px-2.5 py-1.5 bg-white border border-zinc-200 rounded text-xs"
+                />
+              </div>
+              <div>
+                <label className="block text-zinc-500 text-[11px] mb-0.5">采购成本 (元)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={newOrderForm.costAmount}
+                  onChange={(e) => setNewOrderForm({ ...newOrderForm, costAmount: parseFloat(e.target.value) || 0 })}
+                  className="w-full px-2.5 py-1.5 bg-white border border-zinc-200 rounded text-xs"
+                />
               </div>
             </div>
           </div>

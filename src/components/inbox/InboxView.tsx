@@ -12,7 +12,9 @@ import {
   Layers,
   ChevronRight,
   Info,
-  ChevronDown
+  ChevronDown,
+  AlertTriangle,
+  ShieldAlert
 } from 'lucide-react';
 import {
   Conversation,
@@ -20,10 +22,11 @@ import {
   Product,
   StorePolicies,
   StoreSettings,
-  Message
+  Message,
+  GeneratedReplyResult
 } from '../../types';
 import { Badge } from '../common/Badge';
-import { AIEngineService, GeneratedReplyResult } from '../../services/aiEngine';
+import { AIEngineService } from '../../services/aiEngine';
 import { OrderContextSidebar } from './OrderContextSidebar';
 
 interface InboxViewProps {
@@ -32,6 +35,8 @@ interface InboxViewProps {
   products: Product[];
   policies: StorePolicies;
   settings: StoreSettings;
+  activeConvId?: string;
+  onSelectConversation?: (convId: string) => void;
   onUpdateConversations: (convs: Conversation[]) => void;
   onOpenOrderModal: (order: Order) => void;
   onShowToast: (text: string, type?: 'success' | 'error' | 'info') => void;
@@ -43,15 +48,28 @@ export const InboxView: React.FC<InboxViewProps> = ({
   products,
   policies,
   settings,
+  activeConvId,
+  onSelectConversation,
   onUpdateConversations,
   onOpenOrderModal,
   onShowToast,
 }) => {
   const [selectedConvId, setSelectedConvId] = useState<string>(
-    conversations[0]?.id || ''
+    activeConvId || conversations[0]?.id || ''
   );
   const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'resolved'>('all');
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Sync when activeConvId is passed or changed from parent
+  useEffect(() => {
+    if (activeConvId && activeConvId !== selectedConvId) {
+      setSelectedConvId(activeConvId);
+      // Clean up previous temporary generation results on conversation switch
+      setAiResult(null);
+      setEditedReply('');
+      setIsReviewedByUser(false);
+    }
+  }, [activeConvId]);
 
   // Current active conversation
   const activeConversation =
@@ -65,8 +83,18 @@ export const InboxView: React.FC<InboxViewProps> = ({
   useEffect(() => {
     if (activeConversation) {
       setSelectedOrderId(activeConversation.orderId);
+      // Clean up previous temporary generation results on conversation switch
+      setAiResult(null);
+      setEditedReply('');
+      setIsReviewedByUser(false);
+
+      const customerMsgs = activeConversation.messages.filter(
+        (m) => m.sender === 'customer'
+      );
+      const lastCust = customerMsgs[customerMsgs.length - 1];
+      setCustomerQueryInput(lastCust ? lastCust.content : '');
     }
-  }, [activeConversation]);
+  }, [activeConversation?.id]);
 
   const activeOrder = orders.find((o) => o.id === selectedOrderId);
   const activeProduct = activeOrder
@@ -78,22 +106,27 @@ export const InboxView: React.FC<InboxViewProps> = ({
   const [isGenerating, setIsGenerating] = useState(false);
   const [aiResult, setAiResult] = useState<GeneratedReplyResult | null>(null);
   const [editedReply, setEditedReply] = useState<string>('');
+  const [isReviewedByUser, setIsReviewedByUser] = useState<boolean>(false);
   const [showRightContext, setShowRightContext] = useState(true);
 
-  // Sync latest customer message as default query when conversation changes
-  useEffect(() => {
-    if (activeConversation) {
-      const customerMsgs = activeConversation.messages.filter(
-        (m) => m.sender === 'customer'
-      );
-      const lastCust = customerMsgs[customerMsgs.length - 1];
-      if (lastCust) {
-        setCustomerQueryInput(lastCust.content);
-      }
-      setAiResult(null);
-      setEditedReply('');
+  // Switch conversation helper
+  const handleSwitchConversation = (convId: string) => {
+    setSelectedConvId(convId);
+    if (onSelectConversation) {
+      onSelectConversation(convId);
     }
-  }, [activeConversation?.id]);
+    setAiResult(null);
+    setEditedReply('');
+    setIsReviewedByUser(false);
+  };
+
+  // Switch order selector in header
+  const handleSwitchOrder = (orderId: string) => {
+    setSelectedOrderId(orderId);
+    setAiResult(null);
+    setEditedReply('');
+    setIsReviewedByUser(false);
+  };
 
   // Trigger AI Suggestion
   const handleGenerateReply = () => {
@@ -115,9 +148,15 @@ export const InboxView: React.FC<InboxViewProps> = ({
 
       setAiResult(result);
       setEditedReply(result.replyText);
+      setIsReviewedByUser(false); // Reset review confirmation on new generation
       setIsGenerating(false);
-      onShowToast('AI 建议回复生成完毕，已结合订单真实状态与知识库', 'success');
-    }, 350);
+
+      if (result.requiresHumanReview) {
+        onShowToast('回复已生成，检测到未核实事项，需人工审核确认', 'info');
+      } else {
+        onShowToast('AI 建议回复生成完毕，已结合订单真实状态与知识库', 'success');
+      }
+    }, 280);
   };
 
   // Copy reply to clipboard
@@ -127,9 +166,14 @@ export const InboxView: React.FC<InboxViewProps> = ({
     onShowToast('回复内容已复制到剪贴板！', 'success');
   };
 
-  // Confirm and Send reply
-  const handleConfirmAndSend = () => {
+  // Confirm and Save reply with review enforcement
+  const handleConfirmAndSave = () => {
     if (!editedReply.trim() || !activeConversation) return;
+
+    // Determine resolved status
+    const needsReview = aiResult ? aiResult.requiresHumanReview : false;
+    const canResolve = !needsReview || isReviewedByUser;
+    const nextStatus: 'in_progress' | 'resolved' = canResolve ? 'resolved' : 'in_progress';
 
     const newMsg: Message = {
       id: `msg-${Date.now()}`,
@@ -143,7 +187,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
       if (conv.id === activeConversation.id) {
         return {
           ...conv,
-          status: 'resolved' as const,
+          status: nextStatus,
           lastMessage: newMsg.content,
           updatedAt: '刚刚',
           messages: [...conv.messages, newMsg],
@@ -156,7 +200,13 @@ export const InboxView: React.FC<InboxViewProps> = ({
     setAiResult(null);
     setEditedReply('');
     setCustomerQueryInput('');
-    onShowToast('模拟回复已保存至本地聊天记录，会话已标记为已处理', 'success');
+    setIsReviewedByUser(false);
+
+    if (canResolve) {
+      onShowToast('模拟回复已审核并保存，工单已标记为已解决', 'success');
+    } else {
+      onShowToast('模拟回复已保存为“处理中”（未确认审核，仍保留在待跟进）', 'info');
+    }
   };
 
   // Send a quick direct reply
@@ -190,7 +240,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
 
   // Filter conversations
   const filteredConversations = conversations.filter((c) => {
-    if (filterStatus === 'pending' && c.status !== 'pending') return false;
+    if (filterStatus === 'pending' && c.status !== 'pending' && c.status !== 'in_progress') return false;
     if (filterStatus === 'resolved' && c.status !== 'resolved') return false;
     if (searchTerm) {
       const matchName = c.customerName.toLowerCase().includes(searchTerm.toLowerCase());
@@ -233,7 +283,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
                 filterStatus === 'pending' ? 'bg-white text-zinc-900 shadow-2xs font-semibold' : 'hover:text-zinc-900'
               }`}
             >
-              待回复
+              待处理
             </button>
             <button
               onClick={() => setFilterStatus('resolved')}
@@ -260,7 +310,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
               return (
                 <div
                   key={conv.id}
-                  onClick={() => setSelectedConvId(conv.id)}
+                  onClick={() => handleSwitchConversation(conv.id)}
                   className={`p-3.5 cursor-pointer transition-all text-left relative ${
                     isSelected
                       ? 'bg-white shadow-2xs border-l-2 border-l-zinc-900'
@@ -291,7 +341,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
                           ? 'emerald'
                           : conv.status === 'pending'
                           ? 'rose'
-                          : 'blue'
+                          : 'amber'
                       }
                       size="sm"
                     >
@@ -333,7 +383,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
                   <span className="text-xs text-zinc-500">关联销售订单:</span>
                   <select
                     value={selectedOrderId}
-                    onChange={(e) => setSelectedOrderId(e.target.value)}
+                    onChange={(e) => handleSwitchOrder(e.target.value)}
                     className="text-xs font-mono font-medium text-sky-800 bg-sky-50 border border-sky-200 rounded px-1.5 py-0.5 focus:outline-none"
                   >
                     {orders.map((o) => (
@@ -359,11 +409,11 @@ export const InboxView: React.FC<InboxViewProps> = ({
                     return conv;
                   });
                   onUpdateConversations(updatedConvs);
-                  onShowToast('会话状态已切换', 'info');
+                  onShowToast('工单状态已切换', 'info');
                 }}
                 className="text-xs font-medium px-2.5 py-1.5 rounded-lg border border-zinc-200 hover:bg-zinc-50 transition-colors text-zinc-700"
               >
-                {activeConversation.status === 'resolved' ? '设为待回复' : '标记为已解决'}
+                {activeConversation.status === 'resolved' ? '设为待处理' : '直接标记为已解决'}
               </button>
 
               <button
@@ -378,45 +428,56 @@ export const InboxView: React.FC<InboxViewProps> = ({
 
         {/* Messages Stream */}
         <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-zinc-50/30">
-          {activeConversation?.messages.map((msg) => {
-            const isCustomer = msg.sender === 'customer';
-            return (
-              <div
-                key={msg.id}
-                className={`flex flex-col ${isCustomer ? 'items-start' : 'items-end'}`}
-              >
-                <div className="flex items-center gap-1.5 mb-1 px-1">
-                  <span className="text-[11px] font-medium text-zinc-500">
-                    {isCustomer ? activeConversation.customerName : 'SellerDesk 客服'}
-                  </span>
-                  {msg.suggestedByAI && (
-                    <span className="text-[10px] text-sky-600 bg-sky-50 px-1 py-0.2 rounded border border-sky-100 flex items-center gap-0.5">
-                      <Sparkles className="w-2.5 h-2.5" />
-                      AI 协同生成
-                    </span>
-                  )}
-                  <span className="text-[10px] text-zinc-400">{msg.timestamp}</span>
-                </div>
-
+          {activeConversation?.messages.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center p-8 text-center text-zinc-400">
+              <MessageSquare className="w-8 h-8 stroke-1 text-zinc-300 mb-2" />
+              <p className="text-xs font-medium text-zinc-600">模拟客服新工单</p>
+              <p className="text-[11px] text-zinc-400 mt-1 max-w-sm">
+                当前工单已关联订单 <span className="font-mono text-zinc-700 font-semibold">{activeConversation.orderId}</span>。
+                买家暂无历史留言，您可在下方输入客户咨询或选择场景测试生成回复。
+              </p>
+            </div>
+          ) : (
+            activeConversation?.messages.map((msg) => {
+              const isCustomer = msg.sender === 'customer';
+              return (
                 <div
-                  onClick={() => {
-                    if (isCustomer) {
-                      setCustomerQueryInput(msg.content);
-                      onShowToast('已将此客户消息载入 AI 提问框', 'info');
-                    }
-                  }}
-                  className={`max-w-md lg:max-w-lg p-3.5 rounded-2xl text-xs leading-relaxed transition-shadow cursor-default ${
-                    isCustomer
-                      ? 'bg-white border border-zinc-200/90 text-zinc-800 rounded-tl-xs shadow-2xs hover:border-sky-300'
-                      : 'bg-zinc-900 text-white rounded-tr-xs shadow-xs'
-                  }`}
-                  title={isCustomer ? '点击可直接载入下方 AI 回复生成器' : undefined}
+                  key={msg.id}
+                  className={`flex flex-col ${isCustomer ? 'items-start' : 'items-end'}`}
                 >
-                  <p className="whitespace-pre-line">{msg.content}</p>
+                  <div className="flex items-center gap-1.5 mb-1 px-1">
+                    <span className="text-[11px] font-medium text-zinc-500">
+                      {isCustomer ? activeConversation.customerName : 'SellerDesk 客服'}
+                    </span>
+                    {msg.suggestedByAI && (
+                      <span className="text-[10px] text-sky-600 bg-sky-50 px-1 py-0.2 rounded border border-sky-100 flex items-center gap-0.5">
+                        <Sparkles className="w-2.5 h-2.5" />
+                        AI 协同生成
+                      </span>
+                    )}
+                    <span className="text-[10px] text-zinc-400">{msg.timestamp}</span>
+                  </div>
+
+                  <div
+                    onClick={() => {
+                      if (isCustomer) {
+                        setCustomerQueryInput(msg.content);
+                        onShowToast('已将此客户消息载入 AI 提问框', 'info');
+                      }
+                    }}
+                    className={`max-w-md lg:max-w-lg p-3.5 rounded-2xl text-xs leading-relaxed transition-shadow cursor-default ${
+                      isCustomer
+                        ? 'bg-white border border-zinc-200/90 text-zinc-800 rounded-tl-xs shadow-2xs hover:border-sky-300'
+                        : 'bg-zinc-900 text-white rounded-tr-xs shadow-xs'
+                    }`}
+                    title={isCustomer ? '点击可直接载入下方 AI 回复生成器' : undefined}
+                  >
+                    <p className="whitespace-pre-line">{msg.content}</p>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })
+          )}
         </div>
 
         {/* AI Reply Copilot Zone */}
@@ -432,13 +493,13 @@ export const InboxView: React.FC<InboxViewProps> = ({
               '查询物流到哪了',
               '拍错颜色想退换货',
               '画框是什么材质？有挂钩吗？',
-              '有配套收纳包吗？'
+              '有配套收纳包吗？',
+              '支持开具发票吗？'
             ].map((preset, idx) => (
               <button
                 key={idx}
                 onClick={() => {
                   setCustomerQueryInput(preset);
-                  // auto generate
                   const result = AIEngineService.generateReply({
                     customerQuery: preset,
                     order: activeOrder,
@@ -448,6 +509,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
                   });
                   setAiResult(result);
                   setEditedReply(result.replyText);
+                  setIsReviewedByUser(false);
                   onShowToast(`已载入场景：“${preset}” 并生成建议`, 'success');
                 }}
                 className="px-2 py-0.8 text-[11px] bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded-md transition-colors"
@@ -484,6 +546,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
           {/* AI Suggestion Box (Editable + Actionable) */}
           {aiResult && (
             <div className="p-4 rounded-xl bg-gradient-to-b from-sky-50/40 via-white to-white border border-sky-200/80 shadow-xs space-y-3 animate-in fade-in">
+              {/* Header */}
               <div className="flex items-center justify-between pb-2 border-b border-sky-100">
                 <div className="flex items-center gap-2">
                   <div className="w-5 h-5 rounded-md bg-sky-600 text-white flex items-center justify-center">
@@ -491,7 +554,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
                   </div>
                   <div>
                     <span className="text-xs font-bold text-zinc-900">
-                      AI 建议回复（可直接编辑）
+                      AI 建议回复（可直接在线修改）
                     </span>
                     <span className="text-[10px] text-sky-700 ml-2">
                       严格遵循真实事实 · 商业隐私已自动脱敏
@@ -499,25 +562,69 @@ export const InboxView: React.FC<InboxViewProps> = ({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-2">
                   <button
                     onClick={handleCopyReply}
                     className="inline-flex items-center gap-1 text-[11px] text-zinc-600 hover:text-zinc-900 bg-white border border-zinc-200 px-2 py-1 rounded-md transition-colors"
                   >
                     <Copy className="w-3 h-3" />
-                    <span>复制</span>
+                    <span>复制回复</span>
                   </button>
 
                   <button
-                    onClick={handleConfirmAndSend}
-                    className="inline-flex items-center gap-1.5 text-[11px] text-white bg-zinc-900 hover:bg-zinc-800 px-3 py-1.5 rounded-md font-semibold transition-colors shadow-2xs"
-                    title="在本地保存此条客服回复记录（不会向真实买家平台发送消息）"
+                    onClick={handleConfirmAndSave}
+                    className={`inline-flex items-center gap-1.5 text-[11px] text-white px-3 py-1.5 rounded-md font-semibold transition-colors shadow-2xs ${
+                      aiResult.requiresHumanReview && !isReviewedByUser
+                        ? 'bg-amber-700 hover:bg-amber-800'
+                        : 'bg-zinc-900 hover:bg-zinc-800'
+                    }`}
+                    title={
+                      aiResult.requiresHumanReview && !isReviewedByUser
+                        ? '保存为待人工复核的工单记录'
+                        : '确认保存回复并将工单标记为已解决'
+                    }
                   >
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>保存模拟回复</span>
+                    <span>
+                      {aiResult.requiresHumanReview && !isReviewedByUser
+                        ? '保存模拟回复 (待复核)'
+                        : '保存模拟回复 (已审核)'}
+                    </span>
                   </button>
                 </div>
               </div>
+
+              {/* Human Review Required Alert Banner (Prominently rendered!) */}
+              {aiResult.requiresHumanReview && (
+                <div className="p-3 rounded-lg bg-amber-50/90 border border-amber-200 text-amber-900 text-xs space-y-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 font-bold text-amber-800">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span>⚠️ 该回复需人工审核（未完成审核前不可直接标记为已解决）</span>
+                    </div>
+
+                    <label className="inline-flex items-center gap-1.5 cursor-pointer bg-white px-2.5 py-1 rounded-md border border-amber-300 text-[11px] font-semibold text-amber-900 hover:bg-amber-100/50 shadow-2xs transition-colors shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={isReviewedByUser}
+                        onChange={(e) => setIsReviewedByUser(e.target.checked)}
+                        className="rounded text-amber-600 focus:ring-amber-500"
+                      />
+                      <span>我已人工核验无误 (确认审核)</span>
+                    </label>
+                  </div>
+
+                  <div className="space-y-0.5 text-[11px] text-amber-800/90 pl-5">
+                    <div className="font-semibold text-amber-900">需要审核的具体原因：</div>
+                    {aiResult.reviewReasons.map((reason, idx) => (
+                      <div key={idx} className="flex items-start gap-1">
+                        <span>•</span>
+                        <span>{reason}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Reasoning steps breadcrumbs */}
               <div className="p-2.5 rounded-lg bg-zinc-50 border border-zinc-100 text-[11px] text-zinc-600 space-y-1">

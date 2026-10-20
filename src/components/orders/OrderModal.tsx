@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Order, OrderStatus, PurchaseOrderStatus } from '../../types';
+import { Order, OrderStatus, PurchaseOrderStatus, Product } from '../../types';
 import { Modal } from '../common/Modal';
 import { Package, Truck, User } from 'lucide-react';
 
@@ -7,6 +7,7 @@ interface OrderModalProps {
   isOpen: boolean;
   onClose: () => void;
   order: Order | null;
+  products: Product[];
   onSaveOrder: (updated: Order) => void;
 }
 
@@ -14,6 +15,7 @@ export const OrderModal: React.FC<OrderModalProps> = ({
   isOpen,
   onClose,
   order,
+  products,
   onSaveOrder,
 }) => {
   const [formData, setFormData] = useState<Order | null>(null);
@@ -33,6 +35,30 @@ export const OrderModal: React.FC<OrderModalProps> = ({
       onClose();
     }
   };
+
+  const handleProductSelect = (selectedId: string) => {
+    if (!formData) return;
+    if (selectedId === 'custom') {
+      setFormData({
+        ...formData,
+        productId: '',
+      });
+    } else {
+      const matched = products.find((p) => p.id === selectedId);
+      if (matched) {
+        setFormData({
+          ...formData,
+          productId: matched.id,
+          productName: matched.name,
+          amount: matched.price * (formData.quantity || 1),
+        });
+      }
+    }
+  };
+
+  const currentMatchedProduct = products.find(
+    (p) => p.id === formData.productId || p.name === formData.productName
+  );
 
   return (
     <Modal
@@ -80,11 +106,47 @@ export const OrderModal: React.FC<OrderModalProps> = ({
             </div>
 
             <div>
+              <label className="block text-zinc-700 font-medium mb-1">从知识库关联商品</label>
+              <select
+                value={currentMatchedProduct ? currentMatchedProduct.id : 'custom'}
+                onChange={(e) => handleProductSelect(e.target.value)}
+                className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-lg text-zinc-800 focus:bg-white focus:outline-none"
+              >
+                <option value="custom">-- 自定义商品 (未录入知识库) --</option>
+                {products.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    [{p.sku}] {p.name} (售价: ¥{p.price.toFixed(2)})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
               <label className="block text-zinc-700 font-medium mb-1">商品名称</label>
               <input
                 type="text"
                 value={formData.productName}
                 onChange={(e) => setFormData({ ...formData, productName: e.target.value })}
+                className="w-full px-3 py-2 bg-white text-zinc-800 border border-zinc-200 rounded-lg focus:outline-none"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-zinc-700 font-medium mb-1">购买数量</label>
+              <input
+                type="number"
+                min="1"
+                value={formData.quantity}
+                onChange={(e) => {
+                  const qty = parseInt(e.target.value) || 1;
+                  const unitPrice = currentMatchedProduct ? currentMatchedProduct.price : (formData.amount / (formData.quantity || 1));
+                  setFormData({
+                    ...formData,
+                    quantity: qty,
+                    amount: unitPrice * qty,
+                  });
+                }}
                 className="w-full px-3 py-2 bg-white text-zinc-800 border border-zinc-200 rounded-lg focus:outline-none"
               />
             </div>
@@ -169,7 +231,7 @@ export const OrderModal: React.FC<OrderModalProps> = ({
           <div className="flex items-center justify-between pb-1.5 border-b border-amber-200/60">
             <div className="flex items-center gap-1.5 font-semibold text-zinc-900">
               <Truck className="w-4 h-4 text-amber-600" />
-              <span>关联供应商采购单（真实供应链事实）</span>
+              <span>关联供应商采购单（真实供应链事实 · 仅商家可见）</span>
             </div>
             <span className="text-[10px] text-amber-700 bg-amber-100 px-2 py-0.5 rounded font-medium">
               客服 AI 必读依据

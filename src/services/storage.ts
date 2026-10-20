@@ -1,4 +1,4 @@
-import { Order, Product, Conversation, StorePolicies, StoreSettings } from '../types';
+import type { Order, Product, Conversation, StorePolicies, StoreSettings } from '../types/index.ts';
 
 const STORAGE_KEYS = {
   ORDERS: 'sellerdesk_orders_v1',

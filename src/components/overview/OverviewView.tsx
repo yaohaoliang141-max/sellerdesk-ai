@@ -4,12 +4,13 @@ import {
   Clock,
   MessageSquare,
   CheckCircle,
-  TrendingUp,
   Sparkles,
   ArrowRight,
   AlertTriangle,
   Truck,
-  ExternalLink
+  ExternalLink,
+  ShieldCheck,
+  Info
 } from 'lucide-react';
 import { Order, Conversation } from '../../types';
 import { Badge } from '../common/Badge';
@@ -20,13 +21,14 @@ interface OverviewViewProps {
   orders: Order[];
   conversations: Conversation[];
   onNavigate: (tab: TabType) => void;
-  onSelectConversation?: (convId: string) => void;
+  onGoToInbox: (order: Order) => void;
 }
 
 export const OverviewView: React.FC<OverviewViewProps> = ({
   orders,
   conversations,
   onNavigate,
+  onGoToInbox,
 }) => {
   const totalOrders = orders.length;
   const pendingOrders = orders.filter(
@@ -35,11 +37,78 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
   const pendingInbox = conversations.filter((c) => c.status === 'pending').length;
   const resolvedInbox = conversations.filter((c) => c.status === 'resolved').length;
 
+  // Real data calculations
+  const totalAgentMessages = conversations.reduce(
+    (acc, c) => acc + c.messages.filter((m) => m.sender === 'agent').length,
+    0
+  );
+  const totalAiMessages = conversations.reduce(
+    (acc, c) => acc + c.messages.filter((m) => m.suggestedByAI).length,
+    0
+  );
+
+  // Dynamic alerts generated strictly from current data
+  interface DynamicAlert {
+    id: string;
+    order: Order;
+    badgeVariant: 'amber' | 'rose' | 'blue';
+    badgeText: string;
+    description: string;
+  }
+
+  const dynamicAlerts: DynamicAlert[] = [];
+
+  // Check for orders needing refund processing
+  orders
+    .filter((o) => o.orderStatus === 'refund_requested')
+    .forEach((o) => {
+      dynamicAlerts.push({
+        id: `refund-${o.id}`,
+        order: o,
+        badgeVariant: 'rose',
+        badgeText: '申请退换中',
+        description: `客户 ${o.customerName} 申请退换商品【${o.productName}】，需核验退货政策并向买家提供退货指引。`,
+      });
+    });
+
+  // Check for pending shipment with supplier tracking or notes
+  orders
+    .filter((o) => o.orderStatus === 'paid_pending_shipment')
+    .forEach((o) => {
+      if (o.purchaseOrder) {
+        if (o.purchaseOrder.status === 'supplier_shipped') {
+          dynamicAlerts.push({
+            id: `supp-shipped-${o.id}`,
+            order: o,
+            badgeVariant: 'blue',
+            badgeText: '供应商已出库',
+            description: `供货方已发货，销售单尚未录入终端运单号。出库时间以快递实际揽收为准，需人工跟进单号。`,
+          });
+        } else {
+          dynamicAlerts.push({
+            id: `prep-${o.id}`,
+            order: o,
+            badgeVariant: 'amber',
+            badgeText: AIEngineService.getPurchaseStatusLabel(o.purchaseOrder.status),
+            description: `客户 ${o.customerName} 订单处于备货阶段，出库时效未经最终物流揽收核实，回复买家时需人工复核。`,
+          });
+        }
+      } else {
+        dynamicAlerts.push({
+          id: `no-po-${o.id}`,
+          order: o,
+          badgeVariant: 'amber',
+          badgeText: '未关联采购单',
+          description: `订单已付款但尚未关联供应链采购单，需人工创建采购协同单。`,
+        });
+      }
+    });
+
   const statCards = [
     {
-      label: '全部订单',
+      label: '全部销售订单',
       value: totalOrders,
-      change: '+12% 较上周',
+      subtext: '本地已保存的模拟订单',
       icon: Package,
       color: 'text-zinc-900',
       bgColor: 'bg-zinc-100',
@@ -47,7 +116,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
     {
       label: '待处理/待发货',
       value: pendingOrders,
-      subtext: '包含已采购未发订单',
+      subtext: '包含备货及采购待发订单',
       icon: Clock,
       color: 'text-amber-600',
       bgColor: 'bg-amber-50',
@@ -55,7 +124,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
     {
       label: '待回复客服会话',
       value: pendingInbox,
-      subtext: '需要人工或AI辅助答复',
+      subtext: '需要人工审核或回复',
       icon: MessageSquare,
       color: 'text-rose-600',
       bgColor: 'bg-rose-50',
@@ -76,16 +145,16 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
       <div className="p-6 bg-gradient-to-r from-zinc-900 via-zinc-800 to-zinc-900 rounded-2xl text-white shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1.5">
-            <span className="px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 text-xs font-semibold flex items-center gap-1 border border-sky-400/30">
-              <Sparkles className="w-3 h-3" />
-              Siena-Inspired 电商协同模式已就绪
+            <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-semibold flex items-center gap-1 border border-emerald-400/30">
+              <ShieldCheck className="w-3 h-3" />
+              演示沙盒环境 · 本地离线持久化
             </span>
           </div>
           <h2 className="text-xl md:text-2xl font-bold tracking-tight">
-            欢迎使用 SellerDesk AI 运营中台
+            SellerDesk AI 协同运营中台
           </h2>
           <p className="text-zinc-400 text-xs md:text-sm mt-1 max-w-xl">
-            系统已实现销售订单与供应商采购单状态双向打通，AI 客服在生成回复时将严格依照真实物流事实，绝不凭空编造。
+            销售订单与源头供应链采购状态无缝对齐。面向买家回复时自动执行商业脱敏，绝不捏造假单号或虚构物流。
           </p>
         </div>
 
@@ -124,12 +193,6 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
               </div>
               <div className="mt-3 flex items-baseline gap-2">
                 <span className="text-2xl font-bold text-zinc-900 tracking-tight">{card.value}</span>
-                {card.change && (
-                  <span className="text-[11px] font-medium text-emerald-600 flex items-center gap-0.5">
-                    <TrendingUp className="w-3 h-3" />
-                    {card.change}
-                  </span>
-                )}
               </div>
               {card.subtext && (
                 <p className="text-[11px] text-zinc-400 mt-1">{card.subtext}</p>
@@ -139,9 +202,9 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
         })}
       </div>
 
-      {/* Action alerts & Efficiency Bar */}
+      {/* Action alerts & Real Operating Stats */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Urgent Attention / Action items */}
+        {/* Urgent Attention / Action items (Dynamically computed!) */}
         <div className="lg:col-span-2 rounded-xl bg-white border border-zinc-200/80 p-5 shadow-xs flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
@@ -149,58 +212,49 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                 <AlertTriangle className="w-4 h-4 text-amber-500" />
                 <h3 className="text-sm font-semibold text-zinc-900">协同待办预警</h3>
               </div>
-              <span className="text-xs text-zinc-400">优先处理</span>
+              <span className="text-xs text-zinc-400">
+                {dynamicAlerts.length > 0 ? `共 ${dynamicAlerts.length} 项需关注` : '无待办'}
+              </span>
             </div>
 
             <div className="mt-4 space-y-3">
-              {/* Highlight Item 1: XY-1001 */}
-              <div className="p-3 rounded-lg border border-amber-200/60 bg-amber-50/40 flex items-start justify-between gap-3">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-xs font-semibold text-zinc-900">
-                      订单 XY-1001
-                    </span>
-                    <Badge variant="amber">已采购，待发货</Badge>
-                    <span className="text-xs text-zinc-500">客户：李梦琪</span>
-                  </div>
-                  <p className="text-xs text-zinc-600 leading-relaxed">
-                    客户在客服中催单（“什么时候发货？急用”）。后台采购单 <span className="font-mono font-medium text-zinc-900">CG-8001</span>（杭州艺景工坊家居）正在备货质检中；AI 生成买家答复时已执行隐私脱敏，不泄露供货商与采购单号。
-                  </p>
+              {dynamicAlerts.length === 0 ? (
+                <div className="p-6 text-center text-xs text-zinc-400">
+                  <CheckCircle className="w-6 h-6 text-emerald-500 mx-auto mb-1.5" />
+                  目前暂无加急预警，所有订单与会话均处于正常流转中。
                 </div>
-                <button
-                  onClick={() => onNavigate('inbox')}
-                  className="shrink-0 text-xs font-medium text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 px-2.5 py-1.5 rounded-lg transition-colors"
-                >
-                  前往答复
-                </button>
-              </div>
-
-              {/* Highlight Item 2: XY-1003 */}
-              <div className="p-3 rounded-lg border border-zinc-200 bg-zinc-50/50 flex items-start justify-between gap-3">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-xs font-semibold text-zinc-900">
-                      订单 XY-1003
-                    </span>
-                    <Badge variant="rose">申请退换中</Badge>
-                    <span className="text-xs text-zinc-500">客户：王舒曼</span>
+              ) : (
+                dynamicAlerts.slice(0, 3).map((item) => (
+                  <div
+                    key={item.id}
+                    className="p-3 rounded-lg border border-zinc-200 bg-zinc-50/50 flex items-start justify-between gap-3"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs font-semibold text-zinc-900">
+                          订单 {item.order.id}
+                        </span>
+                        <Badge variant={item.badgeVariant}>{item.badgeText}</Badge>
+                        <span className="text-xs text-zinc-500">客户：{item.order.customerName}</span>
+                      </div>
+                      <p className="text-xs text-zinc-600 leading-relaxed">
+                        {item.description}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => onGoToInbox(item.order)}
+                      className="shrink-0 text-xs font-medium text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 px-2.5 py-1.5 rounded-lg transition-colors"
+                    >
+                      前往客服
+                    </button>
                   </div>
-                  <p className="text-xs text-zinc-600 leading-relaxed">
-                    客户收到“智能数显保温杯”因颜色拍错想换货，客服需调取退换货政策提供回邮地址。
-                  </p>
-                </div>
-                <button
-                  onClick={() => onNavigate('inbox')}
-                  className="shrink-0 text-xs font-medium text-zinc-700 bg-white hover:bg-zinc-100 border border-zinc-200 px-2.5 py-1.5 rounded-lg transition-colors"
-                >
-                  处理售后
-                </button>
-              </div>
+                ))
+              )}
             </div>
           </div>
 
           <div className="mt-4 pt-3 border-t border-zinc-100 flex items-center justify-between text-xs text-zinc-500">
-            <span>当前所有预警均受 AI 知识库规则保护</span>
+            <span>预警列表由订单及采购实时数据动态计算</span>
             <button
               onClick={() => onNavigate('orders')}
               className="text-sky-600 hover:text-sky-700 font-medium flex items-center gap-1"
@@ -210,45 +264,50 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
           </div>
         </div>
 
-        {/* AI Efficiency & Rule Readiness */}
+        {/* Real Operating Stats (Zero fake numbers) */}
         <div className="rounded-xl bg-white border border-zinc-200/80 p-5 shadow-xs flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
               <div className="flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-sky-500" />
-                <h3 className="text-sm font-semibold text-zinc-900">AI 效能指标</h3>
+                <h3 className="text-sm font-semibold text-zinc-900">会话处理统计</h3>
               </div>
-              <span className="text-[11px] font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-                正常运作
+              <span className="text-[11px] font-medium text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded-full">
+                实时统计
               </span>
             </div>
 
             <div className="mt-4 space-y-4">
               <div>
                 <div className="flex justify-between text-xs mb-1">
-                  <span className="text-zinc-500">建议采纳率 (无需大幅重写)</span>
-                  <span className="font-semibold text-zinc-900">92%</span>
+                  <span className="text-zinc-500">AI 辅助生成并保存回复</span>
+                  <span className="font-semibold text-zinc-900">
+                    {totalAiMessages > 0 ? `${totalAiMessages} 条` : '暂无统计数据'}
+                  </span>
                 </div>
                 <div className="w-full bg-zinc-100 rounded-full h-2">
-                  <div className="bg-sky-500 h-2 rounded-full" style={{ width: '92%' }}></div>
+                  <div
+                    className="bg-sky-500 h-2 rounded-full"
+                    style={{
+                      width: totalAgentMessages > 0 ? `${Math.min(100, Math.round((totalAiMessages / totalAgentMessages) * 100))}%` : '0%',
+                    }}
+                  ></div>
+                </div>
+                <div className="text-[10px] text-zinc-400 mt-1">
+                  {totalAgentMessages > 0
+                    ? `在全部 ${totalAgentMessages} 条客服已发送记录中占比 ${Math.round((totalAiMessages / totalAgentMessages) * 100)}%`
+                    : '在客服工单中生成并保存模拟回复后显示统计'}
                 </div>
               </div>
 
               <div>
                 <div className="flex justify-between text-xs mb-1">
-                  <span className="text-zinc-500">物流事实真实性审计</span>
-                  <span className="font-semibold text-emerald-600">100% 拒绝捏造</span>
+                  <span className="text-zinc-500">工时与提效统计</span>
+                  <span className="text-zinc-400 text-[11px]">暂无统计数据</span>
                 </div>
-                <div className="w-full bg-zinc-100 rounded-full h-2">
-                  <div className="bg-emerald-500 h-2 rounded-full" style={{ width: '100%' }}></div>
+                <div className="p-3 rounded-lg bg-zinc-50 border border-zinc-100 text-[11px] text-zinc-500 leading-relaxed">
+                  当前为轻量演示环境，未接入外部考勤与真实工时计算系统，不展示未经证实的节省分钟数。
                 </div>
-              </div>
-
-              <div className="p-3 rounded-lg bg-zinc-50 border border-zinc-100 text-xs text-zinc-600 space-y-1">
-                <div className="font-medium text-zinc-900">预估已节省客服时间</div>
-                <p className="text-[11px] text-zinc-500">
-                  自动读取采购单状态 CG-8001 并关联知识库，单均回复用时减少约 3.5 分钟。
-                </p>
               </div>
             </div>
           </div>
