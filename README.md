@@ -7,7 +7,7 @@
 
 [![Live Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-2ea44f?style=flat-square&logo=github)](https://yaohaoliang141-max.github.io/sellerdesk-ai/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-20%20Passed-emerald?style=flat-square&logo=node.js)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-21%20Passed-emerald?style=flat-square&logo=node.js)](tests/)
 [![DeepSeek](https://img.shields.io/badge/DeepSeek-API%20Integrated-4e6ef2?style=flat-square)](https://api.deepseek.com)
 [![React 18.3](https://img.shields.io/badge/React-18.3-61dafb?style=flat-square&logo=react)](https://react.dev/)
 [![TypeScript 5.6](https://img.shields.io/badge/TypeScript-5.6-3178c6?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
@@ -258,8 +258,9 @@ npm run deploy
   ✔ 4. 本地代理 HTTP 严格安全防御：阻止非法 Origin、Host、Referer 与非 JSON 请求
   ✔ 5. 错误模型配置清晰报错与离线降级验证
   ✔ 6. 异步串单防护逻辑验证：切换会话或订单后安全忽略过期回复
+  ✔ 7. DeepSeek 官方请求体规范：必须包含 thinking: { type: "disabled" } 且默认模型为 deepseek-flash
 
-ℹ tests 20 | suites 3 | pass 20 | fail 0
+ℹ tests 21 | suites 3 | pass 21 | fail 0
 ```
 
 ---

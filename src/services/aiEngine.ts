@@ -408,6 +408,9 @@ ${matchedStoreFaq.answer}
         orderStatus: this.getOrderStatusLabel(order.orderStatus),
         shippingCarrier: order.shippingCarrier || '未分配',
         trackingNumber: order.trackingNumber || '未生成',
+        // 仅传递采购状态枚举值（由服务端转换为中立履约阶段描述）
+        // 绝不能传输供应商名称、采购单号、成本或内部备注
+        purchaseStatus: order.purchaseOrder?.status,
       };
       // 绝对不包含 purchaseOrder (供应商名、1688单号、成本、工厂备注)
       // 绝对不包含 customerPhone、customerAddress

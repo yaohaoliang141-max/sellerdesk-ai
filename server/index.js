@@ -43,7 +43,7 @@ loadEnv();
 const HOST = '127.0.0.1'; // 严格只监听本地回环地址
 const PORT = parseInt(process.env.AI_SERVER_PORT || '3001', 10);
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com').replace(/\/+$/, '');
-// 默认采用 deepseek-flash（非思考模式，超低延迟、低成本客服对话测试）
+// 默认采用 deepseek-flash（官方低延迟、低成本客服对话模型，通过 thinking: { type: "disabled" } 运行于非思考模式）
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-flash';
 
 // 2. Simple in-memory rate limiter (max 25 requests per minute for local testing)
@@ -141,8 +141,10 @@ export function extractSafeContext(payload) {
       orderStatus: String(rawOrder.orderStatus || 'paid_pending_shipment'),
       shippingCarrier: rawOrder.shippingCarrier ? String(rawOrder.shippingCarrier) : '',
       trackingNumber: rawOrder.trackingNumber ? String(rawOrder.trackingNumber) : '',
-      // 采购协同：仅传入脱敏转换后的履约阶段字符串，绝不传供应商名、单号与成本
-      fulfillmentStage: getFulfillmentStage(rawOrder.purchaseOrder?.status || rawOrder.fulfillmentStage),
+      // 采购协同：仅接收采购状态枚举并转换为中立履约阶段，绝不接收或传输供应商名、单号与成本
+      fulfillmentStage: getFulfillmentStage(
+        rawOrder.purchaseStatus || rawOrder.purchaseOrder?.status || rawOrder.fulfillmentStage
+      ),
     };
   }
 
@@ -361,13 +363,14 @@ export function createServer() {
     if (req.method === 'GET' && parsedUrl.pathname === '/api/deepseek/status') {
       const apiKey = process.env.DEEPSEEK_API_KEY || '';
       const currentModel = process.env.DEEPSEEK_MODEL || DEEPSEEK_MODEL;
+      const currentBaseUrl = (process.env.DEEPSEEK_BASE_URL || DEEPSEEK_BASE_URL).replace(/\/+$/, '');
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(
         JSON.stringify({
           status: 'ok',
           configured: Boolean(apiKey && apiKey.trim().length > 5),
           model: currentModel,
-          baseUrl: DEEPSEEK_BASE_URL,
+          baseUrl: currentBaseUrl,
         })
       );
       return;
@@ -443,7 +446,8 @@ export function createServer() {
           const activeModel = (process.env.DEEPSEEK_MODEL || DEEPSEEK_MODEL).trim();
 
           // DeepSeek Chat Completion Call (非思考模式，快速低成本客服回复)
-          const apiUrl = `${DEEPSEEK_BASE_URL}/chat/completions`;
+          const activeBaseUrl = (process.env.DEEPSEEK_BASE_URL || DEEPSEEK_BASE_URL).replace(/\/+$/, '');
+          const apiUrl = `${activeBaseUrl}/chat/completions`;
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 20000); // 20s timeout
 
@@ -456,9 +460,10 @@ export function createServer() {
             body: JSON.stringify({
               model: activeModel,
               messages,
+              thinking: { type: 'disabled' }, // 官方文档明确指定非思考模式，关闭推理思考以节省延迟和成本
               max_tokens: 500, // Token 上限控制测试成本
               temperature: 0.3, // 低温生成保持事实严谨性
-              stream: false, // 非流式，非思考模式
+              stream: false,
             }),
             signal: controller.signal,
           });

@@ -109,6 +109,30 @@ describe('DeepSeek 本地服务与大模型协同安全测试', () => {
     assert.equal(getFulfillmentStage('supplier_shipped'), '工厂已出库，干线转运中');
     assert.equal(getFulfillmentStage('warehouse_received'), '中转质检仓已收货，等待分配快递发出');
 
+    // 前端脱敏函数校验：必须传递 purchaseStatus 枚举，绝不传递 purchaseOrder 对象、供应商名、单号或成本
+    const { sanitizedOrder, sanitizedProduct } = AIEngineService.sanitizeContextForAI(
+      mockSensitiveOrder,
+      mockProduct
+    );
+    assert.ok(sanitizedOrder);
+    assert.equal(sanitizedOrder.purchaseStatus, 'supplier_shipped', '仅传递采购状态枚举');
+    assert.equal((sanitizedOrder as any).purchaseOrder, undefined, '严禁传递 purchaseOrder 对象');
+    assert.equal((sanitizedOrder as any).supplierName, undefined, '严禁传递 supplierName');
+    assert.equal((sanitizedOrder as any).costAmount, undefined, '严禁传递 costAmount');
+    assert.equal((sanitizedOrder as any).notes, undefined, '严禁传递内部备注');
+
+    // 服务端基于前端传递的 purchaseStatus 转换，确保 getFulfillmentStage 不为空
+    const safeContextFromFrontend = extractSafeContext({
+      customerQuery: '什么时候发货？',
+      order: sanitizedOrder,
+      product: sanitizedProduct,
+    });
+    assert.equal(
+      safeContextFromFrontend.order?.fulfillmentStage,
+      '工厂已出库，干线转运中',
+      '服务端成功根据 purchaseStatus 枚举转换为中立履约描述，非空值'
+    );
+
     // 白名单提取校验
     const safeContext = extractSafeContext({
       customerQuery: '我的电话是 13988889999，寄到北京市海淀区中关村南大街1号院3号楼，什么时候发？',
@@ -337,5 +361,94 @@ describe('DeepSeek 本地服务与大模型协同安全测试', () => {
       appliedReply = '错误地应用到了当前会话';
     }
     assert.equal(appliedReply, '', '过期的回复绝不能被渲染或保存到新会话中');
+  });
+
+  test('7. DeepSeek 官方请求体规范：必须包含 thinking: { type: "disabled" } 且默认模型为 deepseek-flash', async () => {
+    let capturedRequestBody: any = null;
+    const MOCK_UPSTREAM_PORT = 3295;
+    const PROXY_PORT = 3197;
+
+    // 模拟 DeepSeek 官方 API 服务端
+    const mockUpstream = http.createServer((req, res) => {
+      let data = '';
+      req.on('data', (c) => (data += c));
+      req.on('end', () => {
+        try {
+          capturedRequestBody = JSON.parse(data);
+        } catch {}
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            choices: [{ message: { content: '您好，您的商品正在中转运输中。' } }],
+            model: 'deepseek-flash',
+          })
+        );
+      });
+    });
+
+    await new Promise<void>((resolve) => {
+      mockUpstream.listen(MOCK_UPSTREAM_PORT, '127.0.0.1', () => resolve());
+    });
+
+    const origBaseUrl = process.env.DEEPSEEK_BASE_URL;
+    const origKey = process.env.DEEPSEEK_API_KEY;
+    process.env.DEEPSEEK_BASE_URL = `http://127.0.0.1:${MOCK_UPSTREAM_PORT}`;
+    process.env.DEEPSEEK_API_KEY = 'sk-mock-testing-key';
+
+    const testServer = createServer();
+    await new Promise<void>((resolve) => {
+      testServer.listen(PROXY_PORT, '127.0.0.1', () => resolve());
+    });
+
+    try {
+      const { sanitizedOrder, sanitizedProduct } = AIEngineService.sanitizeContextForAI(
+        mockSensitiveOrder,
+        mockProduct
+      );
+
+      const res = await fetch(`http://127.0.0.1:${PROXY_PORT}/api/deepseek/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Origin: 'http://localhost:5173',
+        },
+        body: JSON.stringify({
+          customerQuery: '什么时候发货？',
+          order: sanitizedOrder,
+          product: sanitizedProduct,
+          policies: mockPolicies,
+          settings: mockSettings,
+        }),
+      });
+
+      assert.equal(res.status, 200);
+      assert.ok(capturedRequestBody, '上游 DeepSeek 必须收到请求体');
+      assert.deepEqual(
+        capturedRequestBody.thinking,
+        { type: 'disabled' },
+        '必须显式包含 thinking: { type: "disabled" } 强制非思考模式'
+      );
+      assert.equal(capturedRequestBody.model, 'deepseek-flash', '默认模型必须为 deepseek-flash');
+      assert.equal(capturedRequestBody.stream, false);
+
+      const fullMessages = JSON.stringify(capturedRequestBody.messages);
+      assert.match(
+        fullMessages,
+        /履约协同阶段: 工厂已出库，干线转运中/,
+        '通过 purchaseStatus 成功转换为中立履约阶段并包含在 Prompt 中'
+      );
+    } finally {
+      if (origBaseUrl) process.env.DEEPSEEK_BASE_URL = origBaseUrl;
+      else delete process.env.DEEPSEEK_BASE_URL;
+      if (origKey) process.env.DEEPSEEK_API_KEY = origKey;
+      else delete process.env.DEEPSEEK_API_KEY;
+
+      await new Promise<void>((resolve) => {
+        testServer.close(() => resolve());
+      });
+      await new Promise<void>((resolve) => {
+        mockUpstream.close(() => resolve());
+      });
+    }
   });
 });
