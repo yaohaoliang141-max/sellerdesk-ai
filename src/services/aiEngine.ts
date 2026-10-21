@@ -448,6 +448,9 @@ ${matchedStoreFaq.answer}
 
   /**
    * 对大模型返回的回复进行独立安全审查（二次防御）
+   * 严格区分：
+   * 1. 事实安全风险 (Factual Safety Risk) - 虚假物流承诺、假单号、虚假退款完成、未核实修改成功 -> 触发安全阻断并替换为保守可用回复
+   * 2. 普通表达风格建议 (Style Advisory) - 无关参数冗余、用词提示 -> 仅作提示优化，不作阻断
    */
   static checkDeepSeekReplySafety(
     replyText: string,
@@ -460,20 +463,32 @@ ${matchedStoreFaq.answer}
       conflictAuditReason?: string | null;
     }
   ): {
+    rawReply: string;
     safeReply: string;
+    hasFactualRisk: boolean;
+    isBlocked: boolean;
+    factualRiskReasons: string[];
+    styleAdvisories: string[];
     requiresHumanReview: boolean;
     reviewReasons: string[];
     reasoningSteps: string[];
     isPrivacyBreached: boolean;
   } {
+    const rawReply = this.cleanReplyText(replyText);
     const reviewReasons: string[] = [];
-    const reasoningSteps: string[] = ['【DeepSeek 独立安全校验】开始对大模型生成内容执行多重安全审查...'];
-    let safeReply = this.cleanReplyText(replyText);
-    // 准则：测试阶段所有真实大模型生成回复均必须要求人工核验，严禁自动化发送或自动结单
+    const factualRiskReasons: string[] = [];
+    const styleAdvisories: string[] = [];
+    const reasoningSteps: string[] = ['【DeepSeek 独立安全校验】开始对大模型生成内容执行事实核对与风格审查...'];
+
+    let safeReply = rawReply;
     let requiresHumanReview = true;
     let isPrivacyBreached = false;
+    let hasFactualRisk = false;
+    let isBlocked = false;
 
+    // 准则：测试阶段所有真实大模型生成回复均必须要求人工核验，严禁自动化发送或自动结单
     reviewReasons.push('【测试阶段安全确认】当前处于真实大模型测试阶段，AI 生成建议必须经人工核验后方可采纳，禁止自动发送或修改订单');
+    styleAdvisories.push('当前处于真实大模型测试阶段，AI 生成建议必须经人工核验');
     reasoningSteps.push('🛡️ 测试阶段安全准则：大模型生成建议必须经人工核对把关，杜绝静默自动操作');
 
     const { order, query, conflictAuditReason } = context;
@@ -481,111 +496,149 @@ ${matchedStoreFaq.answer}
     // 0. 历史客服承诺与知识库冲突提示 (案例 C)
     if (conflictAuditReason) {
       reviewReasons.push(conflictAuditReason);
+      factualRiskReasons.push(conflictAuditReason);
+      hasFactualRisk = true;
       reasoningSteps.push(`⚠️ 历史承诺冲突警告: ${conflictAuditReason}`);
     }
 
-    // 1. 供应链核心隐私泄露防范
+    // 1. 供应链核心机密泄露审查 (商业隐私绝对红线)
     if (order?.purchaseOrder) {
       const p = order.purchaseOrder;
-      const lower = safeReply.toLowerCase();
+      const lower = rawReply.toLowerCase();
       if (p.supplierName && lower.includes(p.supplierName.toLowerCase())) {
         isPrivacyBreached = true;
-        reviewReasons.push(`【商业隐私安全拦截】检测到大模型回复输出了供应商名称“${p.supplierName}”`);
+        hasFactualRisk = true;
+        const msg = `【商业隐私安全拦截】检测到大模型回复输出了供应商名称“${p.supplierName}”`;
+        reviewReasons.push(msg);
+        factualRiskReasons.push(msg);
       }
-      if (p.id && safeReply.includes(p.id)) {
+      if (p.id && rawReply.includes(p.id)) {
         isPrivacyBreached = true;
-        reviewReasons.push(`【商业隐私安全拦截】检测到大模型回复输出了内部采购单号“${p.id}”`);
+        hasFactualRisk = true;
+        const msg = `【商业隐私安全拦截】检测到大模型回复输出了内部采购单号“${p.id}”`;
+        reviewReasons.push(msg);
+        factualRiskReasons.push(msg);
       }
-      if (/1688|阿里巴巴|进货底价|出厂价|采购成本|供货商/.test(safeReply)) {
+      if (/1688|阿里巴巴|进货底价|出厂价|采购成本|供货商/.test(rawReply)) {
         isPrivacyBreached = true;
-        reviewReasons.push('【商业隐私安全拦截】检测到敏感供应链关键词');
+        hasFactualRisk = true;
+        const msg = '【商业隐私安全拦截】检测到敏感供应链关键词';
+        reviewReasons.push(msg);
+        factualRiskReasons.push(msg);
       }
     }
 
     if (isPrivacyBreached) {
-      reasoningSteps.push('❌ 检测到商业隐私泄露风险，大模型回复被安全阻断，自动回退至规则引擎安全输出');
-      // 降级使用规则引擎生成的安全回复
-      const fallback = this.generateReply({
-        customerQuery: '查询订单与发货',
-        order: context.order,
-        product: context.product,
-        policies: context.policies,
-        settings: {
-          storeName: 'SellerDesk 生活馆',
-          brandTone: 'professional',
-          signature: '—— SellerDesk AI 客服',
-          autoQuoteOrder: true,
-          notifyEmail: '',
-          currencySymbol: '¥',
-        },
-      });
-      safeReply = fallback.replyText;
-      return {
-        safeReply,
-        requiresHumanReview: true,
-        reviewReasons,
-        reasoningSteps,
-        isPrivacyBreached: true,
-      };
+      reasoningSteps.push('❌ 检测到商业隐私泄露风险，大模型原始回复已被安全阻断，自动生成保守安全回复');
+      isBlocked = true;
+      safeReply = '您好，关于您关心的订单与发货进度，目前商品正在正常备货转运中，有新的物流动态会第一时间同步给您。';
+    } else {
+      reasoningSteps.push('✔ 商业隐私合规：回复未泄露供应商、内部采购单号及进货成本');
     }
 
-    reasoningSteps.push('✔ 商业隐私合规：回复未泄露供应商、内部采购单号及进货成本');
-
     // 2. 物流事实与时效过度承诺校验 (未录入真实运单号时严禁过度承诺)
-    if (!order?.trackingNumber || order.orderStatus === 'paid_pending_shipment' || order.orderStatus === 'pending_payment') {
-      const unverifiedShipping = /今天(?:一定|保证|会)?发货|明天(?:一定|保证|会)?发货|24小时内(?:发货|发出)|48小时内(?:发货|发出)|立即发货|马上安排发出|已经打单发出|包裹已寄出|已为您安排发货/.test(safeReply);
-      const unverifiedDelivery = /保证(?:明天|今天|后天|\d+天内).*?(?:送达|送到|到货|收到)|保证(?:明天|今天|后天|\d+天内)|明天(?:一定|准时|肯定)(?:到|送达|送到)|后天必达|预计\d+天内送达|\d+天左右收到|很快就能收到/.test(safeReply);
-      const unverifiedCarrier = /(?:运单号|快递单号|单号)(?:为|是)?[:：\s]*[A-Za-z0-9]{8,}|(?:已通过|由)(?:顺丰|中通|圆通|韵达|申通|极兔|京东|邮政|EMS)发出/.test(safeReply);
+    const isOrderUnshipped = !order?.trackingNumber || order.orderStatus === 'paid_pending_shipment' || order.orderStatus === 'pending_payment';
+    let unverifiedShippingRisk = false;
+
+    if (isOrderUnshipped) {
+      const unverifiedShipping = /今天(?:一定|保证|会)?发货|明天(?:一定|保证|会)?发货|24小时内(?:发货|发出)|48小时内(?:发货|发出)|立即发货|马上安排发出|已经打单发出|包裹已寄出|已为您安排发货/.test(rawReply);
+      const unverifiedDelivery = /保证(?:明天|今天|后天|\d+天内).*?(?:送达|送到|到货|收到)|保证(?:明天|今天|后天|\d+天内)|明天(?:一定|准时|肯定)(?:到|送达|送到)|后天必达|预计\d+天内送达|\d+天左右收到|很快就能收到/.test(rawReply);
+      const unverifiedCarrier = /(?:运单号|快递单号|单号)(?:为|是)?[:：\s]*[A-Za-z0-9]{8,}|(?:已通过|由)(?:顺丰|中通|圆通|韵达|申通|极兔|京东|邮政|EMS)发出/.test(rawReply);
 
       if (unverifiedShipping || unverifiedDelivery || unverifiedCarrier) {
-        reviewReasons.push('【未核实物流承诺预警】订单尚未录入终端运单号，回复中包含未证实的具体发货时效、快递单号或送达承诺，严禁以此直接回复买家');
-        reasoningSteps.push('⚠️ 物流事实核验预警：检测到未被系统订单证实的物流或时效承诺');
+        unverifiedShippingRisk = true;
+        hasFactualRisk = true;
+        const reason = '【未核实物流承诺预警】订单尚未录入终端运单号，回复中包含未证实的具体发货时效、快递单号或送达承诺，严禁以此直接回复买家';
+        reviewReasons.push(reason);
+        factualRiskReasons.push(reason);
+        reasoningSteps.push('⚠️ 物流事实核验拦截：检测到未被系统订单证实的物流或时效承诺，已阻断原始危险回复并生成保守回复');
       }
     }
 
-    // 3. 售后与退款承诺校验 (未经核准严禁擅自退款退货承诺)
-    const unverifiedRefund = /款项已(?:经)?.*?(?:退回|退还|到账)|退款已(?:经)?到账|立即为您全额退款|同意退款|为您办理全额退款|直接退款给您|退款已申请成功|无需退货直接退款/.test(safeReply);
-    const unverifiedReplacement = /为您补发|马上补寄|重新寄一份|免费换新/.test(safeReply);
-    const unverifiedAddress = /退货地址(?:为|是)[:：\s]*[^\n，。]+(?:路|街|区|室|栋|号)/.test(safeReply);
+    // 3. 售后与退款承诺校验 (未经核准严禁擅自宣称退款完成或承诺免退款)
+    const unverifiedRefund = /款项已(?:经)?.*?(?:退回|退还|到账)|退款已(?:经)?到账|立即为您全额退款|同意退款|为您办理全额退款|直接退款给您|退款已申请成功|无需退货直接退款/.test(rawReply);
+    const unverifiedReplacement = /为您补发|马上补寄|重新寄一份|免费换新/.test(rawReply);
+    const unverifiedAddress = /退货地址(?:为|是)[:：\s]*[^\n，。]+(?:路|街|区|室|栋|号)/.test(rawReply);
+    let unverifiedRefundRisk = false;
 
     if (unverifiedRefund || unverifiedReplacement || unverifiedAddress) {
-      reviewReasons.push('【未核实售后退款预警】大模型回复中包含了即时退款、补寄或未经核实的退货地址承诺，需人工核对实际售后审批权限');
-      reasoningSteps.push('⚠️ 售后事实核验预警：检测到未经核实的退款或售后承诺');
+      unverifiedRefundRisk = true;
+      hasFactualRisk = true;
+      const reason = '【未核实售后退款预警】大模型回复中包含了即时退款、补寄或未经核实的退货地址承诺，需人工核对实际售后审批权限';
+      reviewReasons.push(reason);
+      factualRiskReasons.push(reason);
+      reasoningSteps.push('⚠️ 售后事实核验拦截：检测到未经核实的退款或售后承诺，已阻断原始危险回复并生成保守回复');
     }
 
-    // 4. 无关信息倾倒审查 (案例 A & 案例 B)
+    // 4. 订单修改结果过度承诺校验 (未核验时严禁宣称已修改成功)
+    const unverifiedOrderChange = /(?:已经|已)(?:帮您|为您)?(?:修改成功|改成|换成|改好|修改完毕|备注好|登记成功)|新地址已(?:生效|保存|更新)/.test(rawReply);
+    let unverifiedChangeRisk = false;
+
+    if (unverifiedOrderChange) {
+      unverifiedChangeRisk = true;
+      hasFactualRisk = true;
+      const reason = '【未核实订单修改预警】模型宣称已完成地址/订单修改，但系统尚未完成人工核实与仓库拦截，严禁直接对买家承诺已修改完毕';
+      reviewReasons.push(reason);
+      factualRiskReasons.push(reason);
+      reasoningSteps.push('⚠️ 订单修改核验拦截：检测到未经确认的修改成功声明，已阻断原始危险回复并生成保守回复');
+    }
+
+    // 5. 危险内容安全阻断与保守可用回复生成
+    if (unverifiedShippingRisk) {
+      isBlocked = true;
+      safeReply = '您的订单目前处于排单备货中，运单号尚未生成，暂时无法查询实时轨迹。现货会在承诺时效内质检发出，一旦快递揽收录入单号，我第一时间同步发您。';
+    } else if (unverifiedRefundRisk) {
+      isBlocked = true;
+      safeReply = '关于退换货与退款，本店支持签收后7天无理由退换（需保证商品完好不影响二次销售）。具体的退货核对与退款审批需由人工客服进一步办理，请暂勿自行寄出包裹。';
+    } else if (unverifiedChangeRisk) {
+      isBlocked = true;
+      safeReply = '收到您修改订单的申请。由于订单目前尚未发货，我已先为您记录修改诉求，具体能否成功拦截修改需向仓库核实后告知您，请稍候。';
+    }
+
+    // 6. 普通表达风格问题审查 (仅作提示，不作事实安全阻断)
     if (query) {
       const qLower = query.toLowerCase();
       // 案例 A：买家只问配件/收纳包，不能主动倾倒降噪、续航或物流单号
       const isAccessoryOnly =
         /收纳包|配件|赠品|送什么/.test(qLower) && !/降噪|续航|电池|参数|物流|单号|发货/.test(qLower);
-      if (isAccessoryOnly && /降噪|分贝|续航|\d+小时|运单号|快递单号/.test(safeReply)) {
-        reviewReasons.push('【无关信息倾倒预警】买家仅询问配件信息，回复中输出了未询问的降噪、续航或物流信息');
-        reasoningSteps.push('⚠️ 信息筛选预警：检测到无关参数倾倒');
+      if (isAccessoryOnly && /降噪|分贝|续航|\d+小时|运单号|快递单号/.test(rawReply)) {
+        const msg = '【无关信息倾倒预警】买家仅询问配件信息，回复中输出了未询问的降噪、续航或物流信息';
+        reviewReasons.push(msg);
+        styleAdvisories.push('买家仅询问配件信息，建议删减未询问的降噪或续航参数');
+        reasoningSteps.push('ℹ️ 风格优化提示：检测到无关参数倾倒');
       }
 
       // 案例 B：买家只问发货/物流，不能主动倾倒商品参数
       const isLogisticsOnly =
         /发货|发出来|出库|发走|物流|单号|催发|几天到|什么时候发|到哪了/.test(qLower) &&
         !/材质|尺寸|规格|木质|款式|功能/.test(qLower);
-      if (isLogisticsOnly && /新西兰进口松木|木质|40x60|纯实木/.test(safeReply)) {
-        reviewReasons.push('【无关参数倾倒预警】买家仅咨询物流发货，回复中输出了未询问的商品规格参数');
-        reasoningSteps.push('⚠️ 信息筛选预警：检测到无关规格倾倒');
+      if (isLogisticsOnly && /新西兰进口松木|木质|40x60|纯实木/.test(rawReply)) {
+        const msg = '【无关参数倾倒预警】买家仅咨询物流发货，回复中输出了未询问的商品规格参数';
+        reviewReasons.push(msg);
+        styleAdvisories.push('买家仅咨询物流发货，建议删减未询问的商品规格参数');
+        reasoningSteps.push('ℹ️ 风格优化提示：检测到无关规格倾倒');
       }
     }
 
-    // 5. 超出知识库需要人工跟进
-    if (/转交人工|人工客服进一步确认|稍后为您核实|记录并反馈/.test(safeReply)) {
-      reviewReasons.push('【人工跟进预警】模型研判该问题超出标准知识库，提示需要人工跟进核实');
+    // 7. 超出知识库需要人工跟进
+    if (/转交人工|人工客服进一步确认|稍后为您核实|记录并反馈/.test(rawReply)) {
+      const msg = '【人工跟进预警】模型研判该问题超出标准知识库，提示需要人工跟进核实';
+      reviewReasons.push(msg);
+      styleAdvisories.push('该咨询超出标准知识库，建议人工跟进');
       reasoningSteps.push('ℹ️ 模型提示：当前咨询涉及特殊诉求，建议人工跟进');
     }
 
     return {
+      rawReply,
       safeReply,
+      hasFactualRisk,
+      isBlocked,
+      factualRiskReasons,
+      styleAdvisories,
       requiresHumanReview: true,
       reviewReasons,
       reasoningSteps,
-      isPrivacyBreached: false,
+      isPrivacyBreached,
     };
   }
 
@@ -660,6 +713,12 @@ ${matchedStoreFaq.answer}
 
       return {
         replyText: safety.safeReply,
+        rawReply: safety.rawReply,
+        safeReply: safety.safeReply,
+        hasFactualRisk: safety.hasFactualRisk,
+        isBlocked: safety.isBlocked,
+        factualRiskReasons: safety.factualRiskReasons,
+        styleAdvisories: safety.styleAdvisories,
         reasoningSteps: [
           `【DeepSeek 模型推理】已成功连接本地 AI 服务，调用模型: ${data.model || 'deepseek-flash'}`,
           '【隐私脱敏保障】向大模型发送的数据已隐去供应商名称、采购单号、采购成本及客户联系方式',

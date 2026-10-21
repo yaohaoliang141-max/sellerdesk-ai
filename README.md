@@ -7,7 +7,7 @@
 
 [![Live Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-2ea44f?style=flat-square&logo=github)](https://yaohaoliang141-max.github.io/sellerdesk-ai/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-41%20Passed-emerald?style=flat-square&logo=node.js)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-45%20Passed-emerald?style=flat-square&logo=node.js)](tests/)
 [![DeepSeek](https://img.shields.io/badge/DeepSeek-API%20Integrated-4e6ef2?style=flat-square)](https://api.deepseek.com)
 [![React 18.3](https://img.shields.io/badge/React-18.3-61dafb?style=flat-square&logo=react)](https://react.dev/)
 [![TypeScript 5.6](https://img.shields.io/badge/TypeScript-5.6-3178c6?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
@@ -278,6 +278,10 @@ npm run deploy
   ✔ 18. 知识库未收录生僻问题：诚恳说明需要核对，不瞎猜
   ✔ 19. 买家情绪激动投诉：就事论事直接回答问题，杜绝虚情假意连环道歉
   ✔ 20. 表达规范清洗器：去除首尾多余引号、回复前缀与机械落款（—— SellerDesk AI 客服）
+  ✔ 回归测试 1：真人客服示例严禁包含虚假承诺与预设行动（今天下午揽收/已备注给师傅）
+  ✔ 回归测试 2：中文否定表达与配件确认状态三态判断
+  ✔ 回归测试 3：历史客服承诺送包，知识库明确不包含时，必须触发事实冲突审核，严禁放行
+  ✔ 回归测试 4：未核实承诺安全阻断机制——危险回复不得放行，必须替换为保守可用回复，且分立风格建议
 
 ▶ SellerDesk AI - 完整业务协同工作流测试
   ✔ 1. 新建不同商品订单：确认选择知识库商品与自定义商品时，productId 关联准确，严禁死锁 prod-001
@@ -287,7 +291,7 @@ npm run deploy
   ✔ 5. 动态总览数据统计：真实从当前订单与会话计算，无死锁硬编码
   ✔ 6. 本地持久化储存读写校验：修改订单与保存客服回复后，StorageService 正确持久化
 
-ℹ tests 41 | suites 4 | pass 41 | fail 0
+ℹ tests 45 | suites 4 | pass 45 | fail 0
 ```
 
 ---
@@ -300,9 +304,9 @@ npm run deploy
   - [x] 本地 Node.js 安全代理接入 DeepSeek 官方大模型（双向脱敏与安全质检）
   - [x] 专业级真人客服表达规范系统（10 大意图切片、冲突研判、拒绝机械套话）
   - [x] 供应链核心商业机密（供应商/成本/内部备注）严格脱敏保护
-  - [x] 强制人工审核拦截与事实预警机制
+  - [x] 事实安全风险主动阻断拦截与保守回复生成（未核实发货/退款/改单严禁放行）
   - [x] 双层知识库与动态指标 Dashboard
-  - [x] 41 项自动化端到端与意图质量测试套件全覆盖
+  - [x] 45 项自动化端到端与回归测试套件全覆盖
 - [ ] **v0.2.0 云端协作版**
   - [ ] 接入 Supabase / PostgreSQL 实现多客服账号与跨设备实时同步
   - [ ] 接入 DeepSeek-V3 / DeepSeek-R1 模型后端代理（服务端安全签名）

@@ -8,12 +8,54 @@
 import { INTENTS } from './dialogueIntent.js';
 
 /**
+ * 精准评估商品知识库中特定配件的收录状态
+ * 严格区分：
+ * 1. 'confirmed_included'     - 已确认包含（如“标配包含收纳包”、“附带原装硬壳包”）
+ * 2. 'confirmed_not_included' - 已确认不包含（如“标配不含收纳包”、“不包含收纳包”、“不赠送收纳包”、“收纳包需加购”）
+ * 3. 'unmentioned'            - 知识库未明确说明/未提及
+ * @param {Object} product 商品对象
+ * @param {RegExp} [accessoryPattern] 匹配目标配件的正则
+ * @returns {'confirmed_included' | 'confirmed_not_included' | 'unmentioned'}
+ */
+export function checkAccessoryStatus(product, accessoryPattern = /(?:收纳包|耳机包|硬壳包|收纳袋|保护壳)/i) {
+  if (!product) return 'unmentioned';
+  const specsText = (product?.specs || '') + ' ' + (product?.description || '');
+  const faqAnswers = (product?.faqList || []).map((f) => (f.question || '') + ' ' + (f.answer || '')).join(' ');
+  const allProductText = (specsText + ' ' + faqAnswers).toLowerCase();
+
+  // 若文本中完全未提及该配件关键词，直接判定为未明确说明
+  if (!accessoryPattern.test(allProductText)) {
+    return 'unmentioned';
+  }
+
+  // 1. 中文否定表达优先判定：明确标明不包含、不赠送或需额外加购
+  // 模式 A: 否定修饰词在前，如“不含收纳包”、“不包含收纳包”、“不赠送收纳包”、“标配不含收纳包”、“未附带收纳包”、“无收纳包”
+  const negativePrecedingRegex = /(?:不含|不包含|不赠送|不送|不附带|未包含|未配备|无|不带|非标配)[^，。；;\n]*(?:收纳包|耳机包|硬壳包|收纳袋|保护壳)/i;
+  // 模式 B: 配件在先，否定/加购在后，如“收纳包需加购”、“收纳包需单独加购”、“收纳包需另购”、“收纳包不赠送”、“收纳包不配”
+  const negativeTrailingRegex = /(?:收纳包|耳机包|硬壳包|收纳袋|保护壳)[^，。；;\n]*(?:需加购|需另购|需单独购买|需另行购买|另行购买|需自备|不包含|不含|不赠送|不送|不配|不附带|未配备|没有|额外加购|根据活动赠送或单独加购)/i;
+
+  if (negativePrecedingRegex.test(allProductText) || negativeTrailingRegex.test(allProductText)) {
+    return 'confirmed_not_included';
+  }
+
+  // 2. 肯定表达判定：动词前绝不能带有否定字（不/无/未/非）
+  const positiveAccessoryRegex = /(?:^|[^不无未非])(?:标配|包含|附带|内含|赠送|配有|配带|随盒|自带)[^，。；;\n不无未非]*(?:收纳包|耳机包|硬壳包|收纳袋|保护壳)/i;
+  const positiveTrailingRegex = /(?:收纳包|耳机包|硬壳包|收纳袋|保护壳)[^，。；;\n]*(?:随箱附带|随盒附带|随机附带|免费赠送|为标配件)/i;
+
+  if (positiveAccessoryRegex.test(allProductText) || positiveTrailingRegex.test(allProductText)) {
+    return 'confirmed_included';
+  }
+
+  return 'unmentioned';
+}
+
+/**
  * 历史承诺与知识库冲突检测器
  * @param {Array} history 历史对话记录
  * @param {Object} product 商品白名单对象
  * @param {Object} policies 店铺政策对象
  * @param {string} currentQuery 当前买家提问
- * @returns {{ hasConflict: boolean, conflictDetails: string | null, conflictType: string | null }}
+ * @returns {{ hasConflict: boolean, conflictDetails: string | null, conflictType: string | null, accessoryStatus?: string }}
  */
 export function detectHistoricalConflict(history = [], product = null, policies = null, currentQuery = '') {
   if (!Array.isArray(history) || history.length === 0) {
@@ -25,27 +67,25 @@ export function detectHistoricalConflict(history = [], product = null, policies 
     (m) => m.role === 'assistant' || m.sender === 'agent' || m.sender === 'assistant'
   );
 
-  // 1. 配件赠品承诺冲突检测（典型案例：历史客服答应送收纳包/赠品，但知识库未明确记载）
+  // 1. 配件赠品承诺冲突检测（典型案例：历史客服答应送收纳包/赠品，但知识库未确认包含或明确不包含）
   const accessoryPromiseMsg = pastAssistantMsgs.find((m) =>
     /赠送.*收纳包|送.*收纳包|附带.*收纳包|会附收纳包|送.*耳机包|赠送.*保护壳|送原装/.test(m.content || '')
   );
 
   if (accessoryPromiseMsg) {
-    // 检查商品知识库中是否确实包含该配件
-    const specsText = (product?.specs || '') + (product?.description || '');
-    const faqAnswers = (product?.faqList || []).map((f) => f.answer).join(' ');
-    const allProductText = (specsText + ' ' + faqAnswers).toLowerCase();
+    const accessoryStatus = checkAccessoryStatus(product);
 
-    // 必须有“标配/包含/附带/赠送”收纳包的明确说明才算知识库证实
-    const kbConfirmsAccessory = /(?:标配|包含|附带|内含|赠送)[^，。；;\n]*(?:收纳包|耳机包|硬壳包)/.test(allProductText);
-
-    // 如果知识库未明确证实，且买家正在追问配件相关问题（如“确定有收纳包吗？”、“刚才说送包”）
-    if (!kbConfirmsAccessory && /收纳包|耳机包|包|赠品|送|配件|确定|真的吗/.test(queryLower)) {
+    // 只要不是知识库已确认包含（即：知识库明确不包含 confirmed_not_included，或知识库未明确提及 unmentioned），
+    // 且买家正在追问配件，必须严格触发冲突审核，绝不能视为已核实赠送！
+    if (accessoryStatus !== 'confirmed_included' && /收纳包|耳机包|包|赠品|送|配件|确定|真的吗/.test(queryLower)) {
+      const isExplicitDenial = accessoryStatus === 'confirmed_not_included';
       return {
         hasConflict: true,
-        conflictType: 'accessory_promise_unverified',
-        conflictDetails:
-          '历史客服曾答应买家“赠送收纳包/赠品”，但商品知识库中未明确收录该配件信息，属于缺乏验证依据的历史承诺。',
+        conflictType: isExplicitDenial ? 'accessory_conflict_explicit_denial' : 'accessory_promise_unverified',
+        accessoryStatus,
+        conflictDetails: isExplicitDenial
+          ? '历史客服曾答应买家“赠送收纳包/配件”，但商品知识库明确记录标配不包含或需加购，存在直接事实冲突。'
+          : '历史客服曾答应买家“赠送收纳包/赠品”，但商品知识库中未明确收录该配件信息，属于缺乏验证依据的历史承诺。',
       };
     }
   }
@@ -82,13 +122,23 @@ export function buildSelectiveContextPrompt(safeContext, intentAnalysis) {
   let conflictInstruction = null;
   let conflictAuditReason = null;
   if (conflict.hasConflict) {
-    conflictAuditReason = `历史客服承诺赠送收纳包/配件，但商品知识库缺少可验证依据，需要人工确认。`;
-    conflictInstruction = `【历史客服说法与知识库核验冲突】
+    if (conflict.conflictType === 'accessory_conflict_explicit_denial') {
+      conflictAuditReason = `历史客服承诺赠送收纳包/配件，但知识库明确标配不含或需加购，存在事实冲突，需要人工审核。`;
+      conflictInstruction = `【历史客服说法与知识库明确否定冲突】
+注意：历史客服曾承诺赠送收纳包，但商品知识库明确记载标配不含该配件（或需单独加购）！
+处理原则：
+1. 采取真人客服诚恳自然的澄清说明：“之前跟您说过会附收纳包，不过核对配件清单标配不包含收纳包，我再帮您向店长确认一下能否申请赠送，确认好再回复您”。
+2. 严禁无凭据直接答应赠送，也不要直接生硬指责之前客服说错了。
+3. 态度诚恳客观，说明正在核查确认。`;
+    } else {
+      conflictAuditReason = `历史客服承诺赠送收纳包/配件，但商品知识库缺少可验证依据，需要人工确认。`;
+      conflictInstruction = `【历史客服说法与知识库核验冲突】
 注意：买家询问的内容在历史客服回复中曾有承诺（如赠送收纳包），但当前已核实的知识库中无明确记载！
 处理原则：
 1. 采取真人客服的自然澄清方式：“之前跟您说过会附收纳包，不过我还得再核对一下配件清单，确认好再给您准确答复”。
 2. 严禁直接盲目承认“确定赠送”，也严禁武断否定“没有赠送”。
 3. 态度诚恳客观，说明正在核对确认。`;
+    }
   }
 
   // 2. 意图驱动的信息切片
@@ -114,7 +164,12 @@ export function buildSelectiveContextPrompt(safeContext, intentAnalysis) {
       lines.push(
         `- 相关问答: ${accessoryFaqs.map((f) => `问：${f.question} 答：${f.answer}`).join('； ')}`
       );
-    } else {
+    }
+
+    const accessoryStatus = checkAccessoryStatus(product);
+    if (accessoryStatus === 'confirmed_not_included') {
+      lines.push(`- 专属配件核实: 知识库明确标配不含收纳包（需加购或不配）`);
+    } else if (accessoryStatus === 'unmentioned' && accessoryFaqs.length === 0) {
       lines.push(`- 专属配件记录: 知识库中暂未明确列出赠送收纳包或额外赠品`);
     }
     return lines.join('\n');

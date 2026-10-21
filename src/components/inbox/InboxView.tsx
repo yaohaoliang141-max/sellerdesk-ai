@@ -124,6 +124,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
   const [aiResult, setAiResult] = useState<GeneratedReplyResult | null>(null);
   const [editedReply, setEditedReply] = useState<string>('');
   const [isReviewedByUser, setIsReviewedByUser] = useState<boolean>(false);
+  const [showRawBlockedReply, setShowRawBlockedReply] = useState<boolean>(false);
   const [showRightContext, setShowRightContext] = useState(true);
   const [mobileTab, setMobileTab] = useState<'list' | 'chat' | 'detail'>('chat');
 
@@ -158,6 +159,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
     setAiResult(null);
     setEditedReply('');
     setIsReviewedByUser(false);
+    setShowRawBlockedReply(false);
   };
 
   // Switch order selector in header
@@ -169,6 +171,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
     setAiResult(null);
     setEditedReply('');
     setIsReviewedByUser(false);
+    setShowRawBlockedReply(false);
   };
 
   // Trigger AI Suggestion
@@ -262,11 +265,15 @@ export const InboxView: React.FC<InboxViewProps> = ({
     }
   };
 
-  // Copy reply to clipboard
+  // Copy reply to clipboard (with factual risk distinction)
   const handleCopyReply = () => {
     if (!editedReply) return;
     navigator.clipboard.writeText(editedReply);
-    onShowToast('回复内容已复制到剪贴板！', 'success');
+    if (aiResult?.hasFactualRisk) {
+      onShowToast('已复制通过事实核验的安全回复（危险未核实承诺已被阻断替换）', 'success');
+    } else {
+      onShowToast('回复内容已复制到剪贴板！', 'success');
+    }
   };
 
   // Confirm and Save reply with review enforcement
@@ -275,7 +282,9 @@ export const InboxView: React.FC<InboxViewProps> = ({
 
     // Determine resolved status
     const needsReview = aiResult ? aiResult.requiresHumanReview : false;
-    const canResolve = !needsReview || isReviewedByUser;
+    const hasFactualRisk = Boolean(aiResult?.hasFactualRisk);
+    // 若存在事实安全风险且未人工核对勾选，严禁标记为已解决
+    const canResolve = (!needsReview && !hasFactualRisk) || isReviewedByUser;
     const nextStatus: 'in_progress' | 'resolved' = canResolve ? 'resolved' : 'in_progress';
 
     const newMsg: Message = {
@@ -304,9 +313,12 @@ export const InboxView: React.FC<InboxViewProps> = ({
     setEditedReply('');
     setCustomerQueryInput('');
     setIsReviewedByUser(false);
+    setShowRawBlockedReply(false);
 
     if (canResolve) {
       onShowToast('模拟回复已审核并保存，工单已标记为已解决', 'success');
+    } else if (hasFactualRisk) {
+      onShowToast('模拟回复已保存为“处理中”（检测到事实安全风险，需人工持续复核）', 'info');
     } else {
       onShowToast('模拟回复已保存为“处理中”（未确认审核，仍保留在待跟进）', 'info');
     }
@@ -805,8 +817,41 @@ export const InboxView: React.FC<InboxViewProps> = ({
                 </div>
               </div>
 
-              {/* Human Review Required Alert Banner (Prominently rendered!) */}
-              {aiResult.requiresHumanReview && (
+              {/* Factual Safety Risk Banner (🚨 Critical Block Banner) */}
+              {aiResult.hasFactualRisk ? (
+                <div className="p-3 rounded-lg bg-rose-50/90 border border-rose-200 text-rose-900 text-xs space-y-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 font-bold text-rose-800">
+                      <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                      <span>🚨 拦截到未核实事实安全风险（危险原始承诺已阻断，已自动替换为保守可用回复）</span>
+                    </div>
+
+                    <label className="inline-flex items-center gap-1.5 cursor-pointer bg-white px-2.5 py-1 rounded-md border border-rose-300 text-[11px] font-semibold text-rose-900 hover:bg-rose-100/50 shadow-2xs transition-colors shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={isReviewedByUser}
+                        onChange={(e) => setIsReviewedByUser(e.target.checked)}
+                        className="rounded text-rose-600 focus:ring-rose-500"
+                      />
+                      <span>我已人工核验并修正 (确认审核)</span>
+                    </label>
+                  </div>
+
+                  <div className="space-y-0.5 text-[11px] text-rose-800/90 pl-5">
+                    <div className="font-semibold text-rose-950">事实风险拦截原因：</div>
+                    {(aiResult.factualRiskReasons && aiResult.factualRiskReasons.length > 0
+                      ? aiResult.factualRiskReasons
+                      : aiResult.reviewReasons
+                    ).map((reason, idx) => (
+                      <div key={idx} className="flex items-start gap-1">
+                        <span>•</span>
+                        <span>{reason}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : aiResult.requiresHumanReview ? (
+                /* Human Review Required Alert Banner (Normal Review Banner) */
                 <div className="p-3 rounded-lg bg-amber-50/90 border border-amber-200 text-amber-900 text-xs space-y-2">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 font-bold text-amber-800">
@@ -835,6 +880,24 @@ export const InboxView: React.FC<InboxViewProps> = ({
                     ))}
                   </div>
                 </div>
+              ) : null}
+
+              {/* Ordinary Style Advisories Box (Separated from Factual Risks) */}
+              {aiResult.styleAdvisories && aiResult.styleAdvisories.length > 0 && (
+                <div className="p-2.5 rounded-lg bg-sky-50/60 border border-sky-100 text-[11px] text-sky-900 space-y-1">
+                  <div className="font-semibold text-sky-950 flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-sky-600" />
+                    <span>💡 表达风格优化建议（非事实安全阻断）：</span>
+                  </div>
+                  <div className="space-y-0.5 text-sky-800 pl-4">
+                    {aiResult.styleAdvisories.map((adv, idx) => (
+                      <div key={idx} className="flex items-start gap-1">
+                        <span>•</span>
+                        <span>{adv}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               )}
 
               {/* Reasoning steps breadcrumbs */}
@@ -853,15 +916,46 @@ export const InboxView: React.FC<InboxViewProps> = ({
                 </div>
               </div>
 
-              {/* Textarea for editing */}
-              <div className="relative">
-                <textarea
-                  rows={4}
-                  value={editedReply}
-                  onChange={(e) => setEditedReply(e.target.value)}
-                  className="w-full text-xs p-3 bg-white border border-zinc-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-zinc-900 font-sans leading-relaxed text-zinc-800"
-                  placeholder="在此直接编辑修改回复内容..."
-                />
+              {/* Distinct view for Safe Usable Reply vs Raw Blocked Reply */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-[11px] font-semibold text-zinc-700">
+                  <span className="flex items-center gap-1 text-emerald-800 font-bold">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    已通过事实核对的可用回复（推荐）
+                  </span>
+                  {aiResult.rawReply && aiResult.rawReply !== editedReply && (
+                    <button
+                      type="button"
+                      onClick={() => setShowRawBlockedReply(!showRawBlockedReply)}
+                      className="text-[11px] text-zinc-500 hover:text-rose-700 underline flex items-center gap-1 font-normal"
+                    >
+                      {showRawBlockedReply ? '隐藏原始未核实回复' : '查看原始未核实回复 (高危已阻断)'}
+                    </button>
+                  )}
+                </div>
+
+                {showRawBlockedReply && aiResult.rawReply && (
+                  <div className="p-2.5 rounded-lg bg-rose-50/70 border border-rose-200 text-[11px] text-rose-900 space-y-1">
+                    <div className="font-bold flex items-center gap-1 text-rose-800">
+                      <AlertTriangle className="w-3 h-3 text-rose-600" />
+                      <span>原始未核实回复（包含高风险内容，已阻断，严禁直接对外发送）：</span>
+                    </div>
+                    <div className="p-2 bg-white/90 rounded border border-rose-100 font-mono text-[11px] text-rose-800 whitespace-pre-wrap">
+                      {aiResult.rawReply}
+                    </div>
+                  </div>
+                )}
+
+                {/* Textarea for editing the safe verified reply */}
+                <div className="relative">
+                  <textarea
+                    rows={4}
+                    value={editedReply}
+                    onChange={(e) => setEditedReply(e.target.value)}
+                    className="w-full text-xs p-3 bg-white border border-zinc-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-zinc-900 font-sans leading-relaxed text-zinc-800"
+                    placeholder="在此直接编辑修改回复内容..."
+                  />
+                </div>
               </div>
             </div>
           )}

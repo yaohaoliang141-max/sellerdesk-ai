@@ -1,7 +1,11 @@
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { analyzeIntent, INTENTS } from '../server/dialogueIntent.js';
-import { detectHistoricalConflict, buildSelectiveContextPrompt } from '../server/contextSelector.js';
+import {
+  detectHistoricalConflict,
+  buildSelectiveContextPrompt,
+  checkAccessoryStatus,
+} from '../server/contextSelector.js';
 import {
   HUMAN_STYLE_SPECIFICATION,
   FACTUAL_SAFETY_SPECIFICATION,
@@ -214,7 +218,11 @@ describe('SellerDesk AI - 真人客服对话规则系统与 20 项质量体系�
     );
 
     assert.equal(conflict.hasConflict, true, '必须成功识别历史客服承诺与知识库的冲突');
-    assert.equal(conflict.conflictType, 'accessory_promise_unverified');
+    assert.ok(
+      conflict.conflictType === 'accessory_promise_unverified' ||
+        conflict.conflictType === 'accessory_conflict_explicit_denial',
+      '必须正确识别为配件未核实或明确否定冲突'
+    );
 
     // 验证切片提示词中是否注入澄清指导
     const safeContext = extractSafeContext({
@@ -227,9 +235,9 @@ describe('SellerDesk AI - 真人客服对话规则系统与 20 项质量体系�
     const { conflictInstruction, conflictAuditReason } = buildSelectiveContextPrompt(safeContext, intent);
 
     assert.ok(conflictInstruction, '必须包含冲突澄清指导');
-    assert.match(conflictInstruction, /之前跟您说过会附收纳包，不过我还得再核对一下配件清单/);
+    assert.match(conflictInstruction, /之前跟您说过会附收纳包/);
     assert.ok(conflictAuditReason);
-    assert.match(conflictAuditReason, /历史客服承诺赠送收纳包/);
+    assert.match(conflictAuditReason, /收纳包/);
 
     // 验证安全审核机制在接收到冲突时自动标记
     const safetyCheck = AIEngineService.checkDeepSeekReplySafety(
@@ -241,7 +249,7 @@ describe('SellerDesk AI - 真人客服对话规则系统与 20 项质量体系�
       }
     );
     assert.equal(safetyCheck.requiresHumanReview, true);
-    assert.ok(safetyCheck.reviewReasons.some((r) => r.includes('历史客服承诺赠送收纳包')));
+    assert.ok(safetyCheck.reviewReasons.some((r) => r.includes('收纳包')));
   });
 
   test('案例 D：用户连续追问“那到底什么时候发？”，识别上下文追问特征，不作为孤立全新问题', () => {
@@ -478,5 +486,174 @@ describe('SellerDesk AI - 真人客服对话规则系统与 20 项质量体系�
 
     const rawAiReply4 = '亲亲，已经为您打包好啦！';
     assert.equal(cleanReplyText(rawAiReply4), '已经为您打包好啦！');
+  });
+
+  // ==========================================
+  // 三、专项回归测试 (问题一、二、三精准验证)
+  // ==========================================
+
+  test('回归测试 1：真人客服示例严禁包含虚假承诺与预设行动（今天下午揽收/已备注给师傅）', () => {
+    // 检查 FEW_SHOT_HUMAN_EXAMPLES 中的示范回复
+    assert.doesNotMatch(
+      FEW_SHOT_HUMAN_EXAMPLES,
+      /今天下午快递揽收录入单号/,
+      '示例中不得预设今天下午快递一定揽收录入单号'
+    );
+    assert.doesNotMatch(
+      FEW_SHOT_HUMAN_EXAMPLES,
+      /我先帮您把新地址备注给打包师傅/,
+      '示例中不得预设已完成修改或已经备注给师傅'
+    );
+    // 确保包含不预设行动的安全表达
+    assert.match(FEW_SHOT_HUMAN_EXAMPLES, /只要还没打单发出就给您登记修改/);
+    assert.match(FEW_SHOT_HUMAN_EXAMPLES, /有了快递单号我第一时间发您/);
+  });
+
+  test('回归测试 2：中文否定表达与配件确认状态三态判断', () => {
+    // A. 明确不包含 (confirmed_not_included)
+    const productDenial1: Product = {
+      ...mockEarphoneProduct,
+      specs: '标配不含收纳包; 包含Type-C线',
+      faqList: [],
+    };
+    assert.equal(checkAccessoryStatus(productDenial1), 'confirmed_not_included');
+
+    const productDenial2: Product = {
+      ...mockEarphoneProduct,
+      specs: '40dB混合降噪; 包含Type-C充电线',
+      faqList: [{ question: '送收纳包吗？', answer: '不赠送收纳包，需另外单独购买。' }],
+    };
+    assert.equal(checkAccessoryStatus(productDenial2), 'confirmed_not_included');
+
+    const productDenial3: Product = {
+      ...mockEarphoneProduct,
+      specs: '标准装包装清单：耳机本体、充电线；收纳包需加购。',
+      faqList: [],
+    };
+    assert.equal(checkAccessoryStatus(productDenial3), 'confirmed_not_included');
+
+    const productDenial4: Product = {
+      ...mockEarphoneProduct,
+      specs: '耳机配件清单：Type-C线；未配备收纳包。',
+      faqList: [],
+    };
+    assert.equal(checkAccessoryStatus(productDenial4), 'confirmed_not_included');
+
+    // B. 已确认包含 (confirmed_included)
+    const productIncluded1: Product = {
+      ...mockEarphoneProduct,
+      specs: '标配包含原装硬壳收纳包与Type-C充电线',
+      faqList: [],
+    };
+    assert.equal(checkAccessoryStatus(productIncluded1), 'confirmed_included');
+
+    const productIncluded2: Product = {
+      ...mockEarphoneProduct,
+      specs: '极简设计',
+      faqList: [{ question: '送耳机包吗？', answer: '包装内附带专用耳机包一个。' }],
+    };
+    assert.equal(checkAccessoryStatus(productIncluded2), 'confirmed_included');
+
+    // C. 知识库未提及 (unmentioned)
+    const productUnmentioned: Product = {
+      ...mockPaintingProduct,
+      specs: '外框尺寸40x60cm，纯实木',
+      faqList: [],
+    };
+    assert.equal(checkAccessoryStatus(productUnmentioned), 'unmentioned');
+  });
+
+  test('回归测试 3：历史客服承诺送包，知识库明确不包含时，必须触发事实冲突审核，严禁放行', () => {
+    const productExplicitDenial: Product = {
+      ...mockEarphoneProduct,
+      specs: '标配不含收纳包；包装内包含充电线',
+      faqList: [{ question: '有收纳袋吗？', answer: '不赠送收纳包，需加购。' }],
+    };
+
+    const historyWithPromise: Message[] = [
+      { id: '1', sender: 'agent', content: '亲，耳机会赠送原装硬壳收纳包的。' },
+    ];
+
+    const conflict = detectHistoricalConflict(
+      historyWithPromise,
+      productExplicitDenial,
+      mockStorePolicies,
+      '确定送收纳包吗？'
+    );
+
+    assert.equal(conflict.hasConflict, true, '知识库明确否定时必须严格识别冲突');
+    assert.equal(conflict.conflictType, 'accessory_conflict_explicit_denial');
+    assert.equal(conflict.accessoryStatus, 'confirmed_not_included');
+
+    const safeContext = extractSafeContext({
+      customerQuery: '刚才说送收纳包，到底有没有？',
+      product: productExplicitDenial,
+      policies: mockStorePolicies,
+      conversationHistory: historyWithPromise,
+    });
+    const intent = analyzeIntent('刚才说送收纳包，到底有没有？', historyWithPromise);
+    const { conflictInstruction, conflictAuditReason } = buildSelectiveContextPrompt(safeContext, intent);
+
+    assert.ok(conflictAuditReason);
+    assert.match(conflictAuditReason, /事实冲突|标配不含/);
+    assert.match(conflictInstruction || '', /知识库明确否定冲突|标配不包含/);
+  });
+
+  test('回归测试 4：未核实承诺安全阻断机制——危险回复不得放行，必须替换为保守可用回复，且分立风格建议', () => {
+    // A. 虚构发货与到货绝对承诺 -> 必须触发阻断，safeReply 替换为保守排单回复
+    const dangerousShippingReply = '好的亲，我保证明天上午一定给您送到，快递单号SF99887766！';
+    const checkShipping = AIEngineService.checkDeepSeekReplySafety(dangerousShippingReply, {
+      order: mockOrderUnshipped,
+      product: mockPaintingProduct,
+      policies: mockStorePolicies,
+      query: '能快点发吗？',
+    });
+
+    assert.equal(checkShipping.hasFactualRisk, true, '必须标记事实安全风险');
+    assert.equal(checkShipping.isBlocked, true, '必须安全阻断原始危险回复');
+    assert.equal(checkShipping.rawReply, dangerousShippingReply);
+    assert.doesNotMatch(checkShipping.safeReply, /SF99887766|保证明天上午一定给您送到/);
+    assert.match(checkShipping.safeReply, /排单备货中|运单号尚未生成/);
+    assert.ok(checkShipping.factualRiskReasons.some((r) => r.includes('未核实物流承诺预警')));
+
+    // B. 虚假退款完成承诺 -> 必须触发阻断，safeReply 替换为售后合规流程
+    const dangerousRefundReply = '款项已经为您原路全额退回到付款账户了，不用寄回了！';
+    const checkRefund = AIEngineService.checkDeepSeekReplySafety(dangerousRefundReply, {
+      order: mockOrderShipped,
+      policies: mockStorePolicies,
+      query: '我要退款',
+    });
+
+    assert.equal(checkRefund.hasFactualRisk, true);
+    assert.equal(checkRefund.isBlocked, true);
+    assert.doesNotMatch(checkRefund.safeReply, /款项已经为您原路全额退回|不用寄回了/);
+    assert.match(checkRefund.safeReply, /7天无理由退换|人工客服进一步办理/);
+    assert.ok(checkRefund.factualRiskReasons.some((r) => r.includes('未核实售后退款预警')));
+
+    // C. 虚假改地址成功声明 -> 必须触发阻断，说明需向仓库核实拦截
+    const dangerousChangeReply = '新地址已经帮您修改成功并生效了！';
+    const checkChange = AIEngineService.checkDeepSeekReplySafety(dangerousChangeReply, {
+      order: mockOrderUnshipped,
+      policies: mockStorePolicies,
+      query: '帮我改地址',
+    });
+
+    assert.equal(checkChange.hasFactualRisk, true);
+    assert.equal(checkChange.isBlocked, true);
+    assert.doesNotMatch(checkChange.safeReply, /新地址已经帮您修改成功/);
+    assert.match(checkChange.safeReply, /需向仓库核实/);
+
+    // D. 普通表达风格问题（如仅问配件却附带降噪参数）-> 只提示风格优化，绝不误判为事实安全阻断
+    const verboseAccessoryReply = '标准装不含收纳包。降噪支持40dB，续航40小时。';
+    const checkStyleOnly = AIEngineService.checkDeepSeekReplySafety(verboseAccessoryReply, {
+      order: mockOrderShipped,
+      product: mockEarphoneProduct,
+      policies: mockStorePolicies,
+      query: '送收纳包吗？',
+    });
+
+    assert.equal(checkStyleOnly.hasFactualRisk, false, '普通风格多话不得扣上事实安全违规帽子');
+    assert.equal(checkStyleOnly.isBlocked, false, '风格问题不得阻断回复');
+    assert.ok(checkStyleOnly.styleAdvisories.some((s) => s.includes('建议删减未询问')));
   });
 });

@@ -92,6 +92,12 @@ export type AIMode = 'rule' | 'deepseek';
 
 export interface GeneratedReplyResult {
   replyText: string;
+  rawReply?: string; // 原始未核实回复
+  safeReply?: string; // 已通过事实核对的可用回复
+  hasFactualRisk?: boolean; // 是否包含事实安全风险（如未核实发货、假单号、假退款等）
+  isBlocked?: boolean; // 原始回复是否已被安全阻断替换
+  factualRiskReasons?: string[]; // 事实安全违规原因清单
+  styleAdvisories?: string[]; // 普通表达风格优化建议
   reasoningSteps: string[];
   intent: 'logistics' | 'return_refund' | 'product_inquiry' | 'urgent_shipping' | 'general';
   confidence: number;
