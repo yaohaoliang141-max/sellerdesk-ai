@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   MessageSquare,
   Search,
@@ -83,6 +83,19 @@ export const InboxView: React.FC<InboxViewProps> = ({
     activeConversation?.orderId || ''
   );
 
+  // 串单与竞态防护：跟踪当前处于活动状态的会话与订单 ID，丢弃过期的异步回复请求
+  const activeConvIdRef = useRef<string | undefined>(activeConversation?.id);
+  const selectedOrderIdRef = useRef<string>(selectedOrderId);
+  const currentRequestIdRef = useRef<number>(0);
+
+  useEffect(() => {
+    activeConvIdRef.current = activeConversation?.id;
+  }, [activeConversation?.id]);
+
+  useEffect(() => {
+    selectedOrderIdRef.current = selectedOrderId;
+  }, [selectedOrderId]);
+
   useEffect(() => {
     if (activeConversation) {
       setSelectedOrderId(activeConversation.orderId);
@@ -90,6 +103,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
       setAiResult(null);
       setEditedReply('');
       setIsReviewedByUser(false);
+      setIsGenerating(false);
 
       const customerMsgs = activeConversation.messages.filter(
         (m) => m.sender === 'customer'
@@ -122,7 +136,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
   }>({
     online: false,
     configured: false,
-    model: 'deepseek-chat',
+    model: 'deepseek-flash',
   });
 
   useEffect(() => {
@@ -133,6 +147,9 @@ export const InboxView: React.FC<InboxViewProps> = ({
 
   // Switch conversation helper
   const handleSwitchConversation = (convId: string) => {
+    // 使当前正在进行的异步请求失效，防止前一个会话的回复串入新选中的会话
+    currentRequestIdRef.current += 1;
+    setIsGenerating(false);
     setSelectedConvId(convId);
     setMobileTab('chat');
     if (onSelectConversation) {
@@ -145,6 +162,9 @@ export const InboxView: React.FC<InboxViewProps> = ({
 
   // Switch order selector in header
   const handleSwitchOrder = (orderId: string) => {
+    // 使当前正在进行的异步请求失效，防止前一个订单的回复串入新选中的订单
+    currentRequestIdRef.current += 1;
+    setIsGenerating(false);
     setSelectedOrderId(orderId);
     setAiResult(null);
     setEditedReply('');
@@ -158,6 +178,10 @@ export const InboxView: React.FC<InboxViewProps> = ({
       onShowToast('请输入或选择客户的问题', 'error');
       return;
     }
+
+    const targetConvId = activeConversation?.id;
+    const targetOrderId = selectedOrderId;
+    const reqId = ++currentRequestIdRef.current;
 
     setIsGenerating(true);
 
@@ -173,26 +197,48 @@ export const InboxView: React.FC<InboxViewProps> = ({
           conversationHistory: activeConversation?.messages,
         });
 
+        // 串单防护：如果用户在请求返回前切换了会话或关联订单，丢弃过期的回复结果
+        if (
+          reqId !== currentRequestIdRef.current ||
+          activeConvIdRef.current !== targetConvId ||
+          selectedOrderIdRef.current !== targetOrderId
+        ) {
+          console.info('[AI Inbox] 检测到用户已切换会话或订单，安全丢弃过期的异步回复结果，防止串单。');
+          return;
+        }
+
         setAiResult(result);
         setEditedReply(result.replyText);
         setIsReviewedByUser(false);
         setIsGenerating(false);
 
         if (result.source === 'deepseek') {
-          if (result.requiresHumanReview) {
-            onShowToast('DeepSeek 已生成建议，触发独立安全规则，需人工复核确认', 'info');
-          } else {
-            onShowToast('DeepSeek 自然语言回复生成完毕，已通过独立安全检查', 'success');
-          }
+          onShowToast('DeepSeek 已生成建议，测试阶段需人工复核确认', 'info');
         } else {
           onShowToast('本地 AI 服务未启动或未配置 API Key，已自动平滑降级至规则引擎', 'info');
         }
       } catch (err: any) {
+        if (
+          reqId !== currentRequestIdRef.current ||
+          activeConvIdRef.current !== targetConvId ||
+          selectedOrderIdRef.current !== targetOrderId
+        ) {
+          return;
+        }
         setIsGenerating(false);
         onShowToast(`大模型调用异常: ${err.message}`, 'error');
       }
     } else {
       setTimeout(() => {
+        // 串单防护
+        if (
+          reqId !== currentRequestIdRef.current ||
+          activeConvIdRef.current !== targetConvId ||
+          selectedOrderIdRef.current !== targetOrderId
+        ) {
+          return;
+        }
+
         const result = AIEngineService.generateReply({
           customerQuery: q,
           order: activeOrder,

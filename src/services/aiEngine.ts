@@ -442,10 +442,14 @@ ${matchedStoreFaq.answer}
     isPrivacyBreached: boolean;
   } {
     const reviewReasons: string[] = [];
-    const reasoningSteps: string[] = ['【DeepSeek 独立安全校验】开始对大模型生成内容执行安全审查...'];
+    const reasoningSteps: string[] = ['【DeepSeek 独立安全校验】开始对大模型生成内容执行多重安全审查...'];
     let safeReply = replyText;
-    let requiresHumanReview = false;
+    // 准则：测试阶段所有真实大模型生成回复均必须要求人工核验，严禁自动化发送或自动结单
+    let requiresHumanReview = true;
     let isPrivacyBreached = false;
+
+    reviewReasons.push('【测试阶段安全确认】当前处于真实大模型测试阶段，AI 生成建议必须经人工核验后方可采纳，禁止自动发送或修改订单');
+    reasoningSteps.push('🛡️ 测试阶段安全准则：大模型生成建议必须经人工核对把关，杜绝静默自动操作');
 
     const { order } = context;
 
@@ -469,7 +473,6 @@ ${matchedStoreFaq.answer}
 
     if (isPrivacyBreached) {
       reasoningSteps.push('❌ 检测到商业隐私泄露风险，大模型回复被安全阻断，自动回退至规则引擎安全输出');
-      requiresHumanReview = true;
       // 降级使用规则引擎生成的安全回复
       const fallback = this.generateReply({
         customerQuery: '查询订单与发货',
@@ -497,36 +500,37 @@ ${matchedStoreFaq.answer}
 
     reasoningSteps.push('✔ 商业隐私合规：回复未泄露供应商、内部采购单号及进货成本');
 
-    // 2. 物流时效过度承诺校验
-    if (!order?.trackingNumber || order.orderStatus === 'paid_pending_shipment') {
-      if (/保证明天|保证\d+天内送达|保证今天到|明天一定到|后天必达/.test(replyText)) {
-        requiresHumanReview = true;
-        reviewReasons.push('【时效核验预警】订单尚处于排产质检中，大模型输出了确定性到货承诺，需人工审核确认');
-        reasoningSteps.push('⚠️ 物流时效预警：检测到确定性送达时间承诺');
+    // 2. 物流事实与时效过度承诺校验 (未录入真实运单号时严禁过度承诺)
+    if (!order?.trackingNumber || order.orderStatus === 'paid_pending_shipment' || order.orderStatus === 'pending_payment') {
+      const unverifiedShipping = /今天(?:一定|保证|会)?发货|明天(?:一定|保证|会)?发货|24小时内(?:发货|发出)|48小时内(?:发货|发出)|立即发货|马上安排发出|已经打单发出|包裹已寄出|已为您安排发货/.test(replyText);
+      const unverifiedDelivery = /保证(?:明天|今天|后天|\d+天内)送达|明天一定到|后天必达|预计\d+天内送达|\d+天左右收到|很快就能收到/.test(replyText);
+      const unverifiedCarrier = /(?:运单号|快递单号|单号)(?:为|是)?[:：\s]*[A-Za-z0-9]{8,}|(?:已通过|由)(?:顺丰|中通|圆通|韵达|申通|极兔|京东|邮政|EMS)发出/.test(replyText);
+
+      if (unverifiedShipping || unverifiedDelivery || unverifiedCarrier) {
+        reviewReasons.push('【未核实物流承诺预警】订单尚未录入终端运单号，回复中包含未证实的具体发货时效、快递单号或送达承诺，严禁以此直接回复买家');
+        reasoningSteps.push('⚠️ 物流事实核验预警：检测到未被系统订单证实的物流或时效承诺');
       }
     }
 
-    // 3. 售后与退款承诺校验
-    if (/立即为您全额退款|款项已原路退回|退款已到账/.test(replyText)) {
-      requiresHumanReview = true;
-      reviewReasons.push('【售后核验预警】大模型回复中包含了即时退款承诺，需人工核对退款审批流程');
-      reasoningSteps.push('⚠️ 售后政策预警：检测到退款承诺，需人工核查');
+    // 3. 售后与退款承诺校验 (未经核准严禁擅自退款退货承诺)
+    const unverifiedRefund = /立即为您全额退款|款项已原路退回|退款已到账|同意退款|为您办理全额退款|直接退款给您|退款已申请成功|无需退货直接退款/.test(replyText);
+    const unverifiedReplacement = /为您补发|马上补寄|重新寄一份|免费换新/.test(replyText);
+    const unverifiedAddress = /退货地址(?:为|是)[:：\s]*[^\n，。]+(?:路|街|区|室|栋|号)/.test(replyText);
+
+    if (unverifiedRefund || unverifiedReplacement || unverifiedAddress) {
+      reviewReasons.push('【未核实售后退款预警】大模型回复中包含了即时退款、补寄或未经核实的退货地址承诺，需人工核对实际售后审批权限');
+      reasoningSteps.push('⚠️ 售后事实核验预警：检测到未经核实的退款或售后承诺');
     }
 
     // 4. 超出知识库需要人工跟进
     if (/转交人工|人工客服进一步确认|稍后为您核实|记录并反馈/.test(replyText)) {
-      requiresHumanReview = true;
       reviewReasons.push('【人工跟进预警】模型研判该问题超出标准知识库，提示需要人工跟进核实');
       reasoningSteps.push('ℹ️ 模型提示：当前咨询涉及特殊诉求，建议人工跟进');
     }
 
-    if (reviewReasons.length > 0) {
-      requiresHumanReview = true;
-    }
-
     return {
       safeReply,
-      requiresHumanReview,
+      requiresHumanReview: true,
       reviewReasons,
       reasoningSteps,
       isPrivacyBreached: false,
@@ -550,7 +554,7 @@ ${matchedStoreFaq.answer}
       return {
         online: true,
         configured: Boolean(data.configured),
-        model: data.model || 'deepseek-chat',
+        model: data.model || 'deepseek-flash',
       };
     } catch {
       return { online: false, configured: false, model: 'offline' };
@@ -598,7 +602,7 @@ ${matchedStoreFaq.answer}
       return {
         replyText: safety.safeReply,
         reasoningSteps: [
-          `【DeepSeek 模型推理】已成功连接本地 AI 服务，调用模型: ${data.model || 'deepseek-chat'}`,
+          `【DeepSeek 模型推理】已成功连接本地 AI 服务，调用模型: ${data.model || 'deepseek-flash'}`,
           '【隐私脱敏保障】向大模型发送的数据已隐去供应商名称、采购单号、采购成本及客户联系方式',
           ...safety.reasoningSteps,
         ],
@@ -607,7 +611,7 @@ ${matchedStoreFaq.answer}
         requiresHumanReview: safety.requiresHumanReview,
         reviewReasons: safety.reviewReasons,
         source: 'deepseek',
-        model: data.model || 'deepseek-chat',
+        model: data.model || 'deepseek-flash',
         usage: data.usage || null,
       };
     } catch (err: any) {
