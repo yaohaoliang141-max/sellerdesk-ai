@@ -2,6 +2,9 @@ import http from 'http';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { analyzeIntent } from './dialogueIntent.js';
+import { buildSelectiveContextPrompt } from './contextSelector.js';
+import { buildSystemPrompt } from './dialoguePrompts.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -203,87 +206,61 @@ export function extractSafeContext(payload) {
   };
 }
 
-// 6. Prompt Builder (基于白名单字段构建上下文，杜绝敏感词)
+// 6. Prompt Builder (基于意图识别、上下文精选与真人客服规范构建)
 export function buildPromptPayload(rawPayload) {
   const safeContext = extractSafeContext(rawPayload);
-  const { customerQuery, order, product, policies, settings, conversationHistory } = safeContext;
+  const intentAnalysis = analyzeIntent(safeContext.customerQuery, safeContext.conversationHistory);
+  const { relevantFactsPrompt, conflictInstruction, conflictAuditReason } = buildSelectiveContextPrompt(
+    safeContext,
+    intentAnalysis
+  );
 
-  const storeName = settings.storeName;
-  const toneDesc =
-    settings.brandTone === 'friendly'
-      ? '亲切、温暖、善解人意，使用礼貌温和的用词'
-      : settings.brandTone === 'concise'
-      ? '精炼、高效、直奔主题，避免冗长寒暄'
-      : '客观、专业、严谨、有礼貌，给客户可靠感';
-
-  let orderContext = '无关联具体订单';
-  if (order && order.id) {
-    orderContext = `
-- 订单编号: ${order.id}
-- 商品名称: ${order.productName || '未指定'}
-- 购买数量: ${order.quantity || 1}
-- 销售金额: ${order.currency}${order.amount || 0}
-- 销售履约状态: ${order.orderStatus || '未知'}
-- 物流承运商: ${order.shippingCarrier || '尚未录入'}
-- 物流运单号: ${order.trackingNumber || '尚未生成'}
-- 履约协同阶段: ${order.fulfillmentStage}`;
-  }
-
-  let productContext = '未指定特定商品规格';
-  if (product && product.name) {
-    productContext = `
-- 商品名称: ${product.name}
-- 规格参数: ${product.specs || '标准规格'}
-- 商品说明: ${product.description || '暂无'}
-- 专属问答: ${
-      product.faqList && product.faqList.length > 0
-        ? product.faqList.map((f) => `问：${f.question} 答：${f.answer}`).join('； ')
-        : '无'
-    }`;
-  }
-
-  let policyContext = `
-- 发货政策: ${policies.shippingRules}
-- 售后政策: ${policies.returnPolicy}
-- 全店常见问题: ${
-    policies.faqList && policies.faqList.length > 0
-      ? policies.faqList.map((f) => `问：${f.question} 答：${f.answer}`).join('； ')
-      : '无'
-  }`;
-
-  const systemContent = `你是由 SellerDesk AI 驱动的【${storeName}】专业电商智能客服助理。
-你的唯一职责是基于下方提供的【真实订单信息】、【商品规格】及【店铺履约政策】回答买家的提问。
-
-【核心原则与安全边界】：
-1. 事实第一：严格依据下方提供的订单状态、商品规格与全店规则作答。绝不捏造未确认的承诺、绝不虚构预计送达时间、绝不编造虚假快递单号。
-2. 物流规则：如果销售订单尚无运单号，说明“商品正在按期质检排单中，生成单号后将第一时间同步”，不得承诺绝对到货日期。
-3. 售后规则：若买家咨询退换货，告知符合条件的政策流程，并说明具体退货地址及退款流程需经人工客服核实确认，不得擅自承诺直接退款或免退货退款。
-4. 商业隐私：绝不能编造或提及任何供应商名称、工厂、供货单号或进货成本；履约协同阶段仅供内部理解发货节奏，禁止向买家输出“采购”“供应链”等内部字眼。
-5. 知识边界：遇到政策中未收录的冷门问题，明确说明“该问题已为您记录，稍后将由人工客服为您进一步核实确认”，切勿胡编乱造。
-6. 回复风格：${toneDesc}。最后落款：${settings.signature}。
-
-【当前背景事实】：
-【订单上下文】
-${orderContext}
-
-【商品知识库】
-${productContext}
-
-【店铺履约规则与政策】
-${policyContext}
-`;
+  const systemContent = buildSystemPrompt(
+    safeContext.settings.storeName,
+    relevantFactsPrompt,
+    conflictInstruction
+  );
 
   const messages = [{ role: 'system', content: systemContent }];
 
-  // 历史消息（已白名单过滤并脱敏）
-  for (const msg of conversationHistory) {
-    messages.push({ role: msg.role, content: msg.content });
+  // 历史对话消息（过滤脱敏，并清洗历史中残留的机器人尾缀，防止对当前轮次造成负面模仿）
+  for (const msg of safeContext.conversationHistory) {
+    const cleanContent = String(msg.content)
+      .replace(/\s*(——|--)\s*.*$/i, '')
+      .trim();
+    messages.push({ role: msg.role, content: cleanContent });
   }
 
-  // 最终用户提问（已脱敏）
-  messages.push({ role: 'user', content: customerQuery.slice(0, 500) });
+  // 最终用户提问（已脱敏，截取前 500 字符）
+  messages.push({ role: 'user', content: safeContext.customerQuery.slice(0, 500) });
+
+  // 附加元数据供上层安全审计读取
+  messages.intentAnalysis = intentAnalysis;
+  messages.conflictAuditReason = conflictAuditReason;
 
   return messages;
+}
+
+// 6.1 真人客服回复清洗器 (消除模型偶发的机械尾巴、包裹引号或前缀)
+export function cleanReplyText(text) {
+  if (!text || typeof text !== 'string') return '';
+  let clean = text.trim();
+
+  // 1. 去除首尾成对的外层引号
+  if ((clean.startsWith('"') && clean.endsWith('"')) || (clean.startsWith('“') && clean.endsWith('”'))) {
+    clean = clean.slice(1, -1).trim();
+  }
+
+  // 2. 去除模型偶发的“回复：”、“客服：”等前缀
+  clean = clean.replace(/^(回复|客服|店主|建议回复|卖家)[：:]\s*/i, '');
+
+  // 3. 去除机械落款（如 “—— SellerDesk AI 客服”）
+  clean = clean.replace(/\s*(——|--)\s*.*$/i, '');
+
+  // 4. 去除机械开场白
+  clean = clean.replace(/^(尊敬的客户(您好)?[，,。\s]*|亲亲[，,！!\s]*|亲爱的买家[，,。\s]*)/i, '');
+
+  return clean.trim();
 }
 
 // 7. 本地安全校验中间件 (Origin / Host / Referer / Content-Type 严格防护)
@@ -500,14 +477,17 @@ export function createServer() {
           }
 
           const data = await apiRes.json();
-          const replyText = data.choices?.[0]?.message?.content || '';
+          const rawReplyText = data.choices?.[0]?.message?.content || '';
+          const replyText = cleanReplyText(rawReplyText);
 
           res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
           res.end(
             JSON.stringify({
-              replyText: replyText.trim(),
+              replyText,
               model: data.model || activeModel,
               usage: data.usage || null,
+              intent: messages.intentAnalysis?.primaryIntent || 'unclassified',
+              conflictAuditReason: messages.conflictAuditReason || null,
             })
           );
         } catch (err) {

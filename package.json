@@ -9,7 +9,7 @@
     "server": "node server/index.js",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test": "node --experimental-strip-types --test tests/aiEngine.test.ts tests/workflow.test.ts tests/deepseek.test.ts",
+    "test": "node --experimental-strip-types --test tests/aiEngine.test.ts tests/workflow.test.ts tests/deepseek.test.ts tests/dialogueQuality.test.ts",
     "generate-media": "node scripts/generate-media.js",
     "deploy": "node scripts/deploy.js"
   },
