@@ -7,7 +7,8 @@
 
 [![Live Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-2ea44f?style=flat-square&logo=github)](https://yaohaoliang141-max.github.io/sellerdesk-ai/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-14%20Passed-emerald?style=flat-square&logo=node.js)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-20%20Passed-emerald?style=flat-square&logo=node.js)](tests/)
+[![DeepSeek](https://img.shields.io/badge/DeepSeek-API%20Integrated-4e6ef2?style=flat-square)](https://api.deepseek.com)
 [![React 18.3](https://img.shields.io/badge/React-18.3-61dafb?style=flat-square&logo=react)](https://react.dev/)
 [![TypeScript 5.6](https://img.shields.io/badge/TypeScript-5.6-3178c6?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
 [![TailwindCSS 3.4](https://img.shields.io/badge/TailwindCSS-3.4-38bdf8?style=flat-square&logo=tailwindcss)](https://tailwindcss.com/)
@@ -65,10 +66,15 @@
 
 ### 2. AI 客服工作台与人工审核把关 (AI Inbox)
 
-集工单列表、客户会话流、研判推理链、审核提示与快捷场景于一体的一站式客服中台：
+集工单列表、客户会话流、研判推理链、双引擎模式切换与审核提示于一体的一站式客服中台：
 
 ![AI Inbox & Human Review](docs/media/inbox.png)
 
+* **双引擎模式随心切换**：
+  * **模拟规则引擎 (默认)**：基于确定性领域规则与商家知识库快速推断，零外部依赖，安全高效。
+  * **真实 DeepSeek 模型**：通过本地服务端代理安全直连 DeepSeek 官方 API (`deepseek-chat` / `deepseek-flash`)，结合订单履约事实生成自然语言回复。
+* **双层商业隐私脱敏**：前端调用前与代理服务器转发前双重过滤，严禁向大模型发送供应商名称、1688 采购单号、成本底价与商家备忘。
+* **生成结果独立安全审查**：大模型生成回复后，系统进行后置安全扫描。一旦检测到未证实的物流时效承诺、未经核验的退款退货承诺或机密数据，自动警示并回退安全话术，标为需人工审核。
 * **专业桌面排版**：三栏宽度经过精细比例重构，操作按钮均采用单行防挤压排列，在标准 1440px 视口下清晰流畅。
 * **事实推理链公开**：展示 AI 提取的数据来源（采购状态、全店政策、商品规格），辅助商家决策。
 * **审核拦截机制**：当出现缺少单号、时效未核实或政策存疑时，强制显示审核原因并要求人工核验确认。
@@ -131,10 +137,12 @@
 2. **拒绝捏造事实与时效承诺**
    - 采购订单“已发货”不等于买家订单“已发货”，在终端运单号未生成前绝不虚报快递公司与单号。
    - 知识库未收录或时效未经核实的问题，明确提示“需人工核实”，绝不胡编乱造。
-3. **前端零私密 Key 暴露**
-   - 前端网页不提供任何大模型 API Key 输入框或客户端本地保存，避免密钥泄露。接入大语言模型时将采用受保护的独立后端中继。
+3. **前端零私密 Key 暴露与本地代理架构**
+   - 前端网页不提供任何大模型 API Key 输入框或客户端本地保存，避免密钥泄露。
+   - 接入大模型时采用本地轻量代理服务端 (`server/index.js`)，仅从本地环境变量 `.env` 读取密钥并监听 `127.0.0.1`，绝不在公开网页中暴露。
 4. **演示环境与真实边界透明披露**
    - 页面明确标注演示环境，所有概览统计均从内存与 localStorage 真实计算，剔除虚假效率指标与假采纳率。
+   - GitHub Pages 线上预览版默认采用纯客户端规则模拟与优雅降级；本地运行 `npm run dev:ai` 即可体验真实 DeepSeek 大模型交互。
 
 ---
 
@@ -144,7 +152,7 @@
 
 | 模块 | 当前实现方式 | 生产版规划 (Roadmap) |
 | :--- | :--- | :--- |
-| **客服推理引擎** | 基于领域规则与模板的确定性推理引擎 (`aiEngine.ts`) | 接入 DeepSeek-V3 / R1 大语言模型 + 意图检索 |
+| **客服推理引擎** | 双引擎无缝切换：① 离线确定性事实规则引擎；② 本地安全代理直连 DeepSeek 官方大模型 (`deepseek-chat` / `deepseek-flash`)，支持多轮上下文与双向隐私脱敏 | 接入生产级云端后端代理与意图向量检索 (RAG) |
 | **数据持久化** | 浏览器 `localStorage` 离线存储，支持一键重置 | 接入 Supabase / PostgreSQL 云端数据库与权限管理 |
 | **电商平台对接** | 纯前端模拟工单与测试订单录入 | 通过 Open API 或授权插件对接闲鱼、淘宝、Shopify |
 | **采购平台协同** | 模拟录入 1688 采购单号、状态及成本 | 通过开放平台或商家授权同步 1688 供货与物流状态 |
@@ -160,7 +168,7 @@
 - Node.js (推荐 v18.0 或更高版本，已在 Node.js v24.14.0 完整验证)
 - npm / pnpm / yarn
 
-### 2. 克隆与运行
+### 2. 克隆与依赖安装
 
 ```bash
 # 克隆仓库
@@ -170,16 +178,41 @@ cd sellerdesk-ai
 # 安装依赖
 npm install
 
-# 运行自动化真实性与工作流集成测试 (14 项测试全通过)
+# 运行自动化真实性、工作流与 DeepSeek 代理测试 (20 项测试全通过)
 npm test
+```
 
-# 启动本地开发服务器
+### 3. 启动运行模式
+
+#### 模式 A：纯前端极速开发（默认规则模拟模式，无需任何配置）
+
+```bash
 npm run dev
 ```
 
-在浏览器打开终端输出的本地地址（如 `http://localhost:5173/`）即可使用。
+在浏览器打开终端输出的本地地址（如 `http://localhost:5173/`），可立即体验完整的订单协同、双层知识库与规则推理工作台。
 
-### 3. 构建与部署
+#### 模式 B：接入真实 DeepSeek 大语言模型
+
+系统内置专为本地开发设计的极简 Node.js 安全代理服务，确保 API Key 不泄漏：
+
+```bash
+# 1. 复制环境变量配置文件
+cp .env.example .env
+
+# 2. 编辑 .env 文件，填入你的 DeepSeek API Key (如 DEEPSEEK_API_KEY=sk-xxxx)
+# 注：.env 已被 .gitignore 忽略，绝不会被意外提交到 GitHub
+
+# 3. 一键启动代理服务与前端开发环境
+npm run dev:ai
+```
+
+启动后：
+1. 本地代理服务将在 `127.0.0.1:3001` 启动并安全校验 DeepSeek 连接。
+2. 前端客服工作台（AI Inbox）顶部状态灯将显示为 **“DeepSeek 本地服务在线”**。
+3. 点击 **“真实 DeepSeek 模型”** 即可在保留人工审核与脱敏机制的前提下，由真实大模型生成自然客服对话！
+
+### 4. 构建与部署
 
 ```bash
 # 类型检查与打包
@@ -197,7 +230,7 @@ npm run deploy
 
 ## 🧪 自动化测试套件
 
-项目内置针对商业隐私、物流真实性、知识库全店检索与完整业务协同的自动化测试套件：
+项目内置针对商业隐私、物流真实性、知识库全店检索、完整业务协同以及 DeepSeek 安全代理的自动化测试套件：
 
 ```text
 ▶ AIEngineService - 商业隐私、真实性与知识库检索测试
@@ -218,7 +251,15 @@ npm run deploy
   ✔ 5. 动态总览数据统计：真实从当前订单与会话计算，无死锁硬编码
   ✔ 6. 本地持久化储存读写校验：修改订单与保存客服回复后，StorageService 正确持久化
 
-ℹ tests 14 | suites 2 | pass 14 | fail 0
+▶ DeepSeek 安全代理与模型集成测试
+  ✔ 1. 客户端上下文脱敏：向大模型发送前自动剔除供应商名称、采购单号与采购成本
+  ✔ 2. 服务端上下文脱敏：服务端代理二次脱敏，即使客户端误传也绝不泄漏给大模型
+  ✔ 3. 生成内容后置隐私检查：若大语言模型生成内容意外包含敏感词，自动触发人工审核并回退
+  ✔ 4. 生成内容后置时效承诺检查：若大模型臆造未证实的预计送达时间，自动标记人工审核
+  ✔ 5. 生成内容后置退款承诺检查：若大模型未经核验擅自承诺退款，自动标记人工审核
+  ✔ 6. 本地代理服务离线 / 网络异常：自动优雅降级为离线规则引擎，保障客服工作台不中断
+
+ℹ tests 20 | suites 3 | pass 20 | fail 0
 ```
 
 ---
@@ -227,6 +268,12 @@ npm run deploy
 
 - [x] **v0.1.0 基础协同版 (当前版本)**
   - [x] 销售订单与 1688 采购订单多级关联
+  - [x] 基于真实事实与履约规则的 AI 客服研判
+  - [x] 本地 Node.js 安全代理接入 DeepSeek 官方大模型（双向脱敏与安全质检）
+  - [x] 供应链核心商业隐私自动脱敏
+  - [x] 强制人工审核拦截与核验标记
+  - [x] 双层知识库与动态指标 Dashboard
+  - [x] 纯前端无服务架构与自动化测试套件 (20 项全通过)
   - [x] 基于真实事实与履约规则的 AI 客服研判
   - [x] 供应链核心商业隐私自动脱敏
   - [x] 强制人工审核拦截与核验标记

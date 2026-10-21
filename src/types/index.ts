@@ -88,6 +88,8 @@ export interface StoreSettings {
   currencySymbol: string;
 }
 
+export type AIMode = 'rule' | 'deepseek';
+
 export interface GeneratedReplyResult {
   replyText: string;
   reasoningSteps: string[];
@@ -95,4 +97,7 @@ export interface GeneratedReplyResult {
   confidence: number;
   requiresHumanReview: boolean;
   reviewReasons: string[];
+  source?: 'rule' | 'deepseek';
+  model?: string;
+  usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null;
 }

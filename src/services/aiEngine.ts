@@ -392,4 +392,238 @@ ${matchedStoreFaq.answer}
     };
     return map[status] || status;
   }
+
+  /**
+   * 严格过滤发送给大模型的上下文数据，阻断供应链机密与用户私密信息泄露
+   */
+  static sanitizeContextForAI(order?: Order, product?: Product) {
+    let sanitizedOrder: Record<string, any> | undefined = undefined;
+    if (order) {
+      sanitizedOrder = {
+        id: order.id,
+        productName: order.productName,
+        quantity: order.quantity,
+        amount: order.amount,
+        currency: order.currency,
+        orderStatus: this.getOrderStatusLabel(order.orderStatus),
+        shippingCarrier: order.shippingCarrier || '未分配',
+        trackingNumber: order.trackingNumber || '未生成',
+      };
+      // 绝对不包含 purchaseOrder (供应商名、1688单号、成本、工厂备注)
+      // 绝对不包含 customerPhone、customerAddress
+    }
+
+    let sanitizedProduct: Record<string, any> | undefined = undefined;
+    if (product) {
+      sanitizedProduct = {
+        name: product.name,
+        specs: product.specs,
+        description: product.description,
+        price: product.price,
+        faqList: product.faqList || [],
+      };
+      // 绝对不包含 product.cost (进货成本)
+    }
+
+    return { sanitizedOrder, sanitizedProduct };
+  }
+
+  /**
+   * 对大模型返回的回复进行独立安全审查（二次防御）
+   */
+  static checkDeepSeekReplySafety(
+    replyText: string,
+    context: { order?: Order; product?: Product; policies: StorePolicies }
+  ): {
+    safeReply: string;
+    requiresHumanReview: boolean;
+    reviewReasons: string[];
+    reasoningSteps: string[];
+    isPrivacyBreached: boolean;
+  } {
+    const reviewReasons: string[] = [];
+    const reasoningSteps: string[] = ['【DeepSeek 独立安全校验】开始对大模型生成内容执行安全审查...'];
+    let safeReply = replyText;
+    let requiresHumanReview = false;
+    let isPrivacyBreached = false;
+
+    const { order } = context;
+
+    // 1. 供应链核心隐私泄露防范
+    if (order?.purchaseOrder) {
+      const p = order.purchaseOrder;
+      const lower = replyText.toLowerCase();
+      if (p.supplierName && lower.includes(p.supplierName.toLowerCase())) {
+        isPrivacyBreached = true;
+        reviewReasons.push(`【商业隐私安全拦截】检测到大模型回复输出了供应商名称“${p.supplierName}”`);
+      }
+      if (p.id && replyText.includes(p.id)) {
+        isPrivacyBreached = true;
+        reviewReasons.push(`【商业隐私安全拦截】检测到大模型回复输出了内部采购单号“${p.id}”`);
+      }
+      if (/1688|阿里巴巴|进货底价|出厂价|采购成本|供货商/.test(replyText)) {
+        isPrivacyBreached = true;
+        reviewReasons.push('【商业隐私安全拦截】检测到敏感供应链关键词');
+      }
+    }
+
+    if (isPrivacyBreached) {
+      reasoningSteps.push('❌ 检测到商业隐私泄露风险，大模型回复被安全阻断，自动回退至规则引擎安全输出');
+      requiresHumanReview = true;
+      // 降级使用规则引擎生成的安全回复
+      const fallback = this.generateReply({
+        customerQuery: '查询订单与发货',
+        order: context.order,
+        product: context.product,
+        policies: context.policies,
+        settings: {
+          storeName: 'SellerDesk 生活馆',
+          brandTone: 'professional',
+          signature: '—— SellerDesk AI 客服',
+          autoQuoteOrder: true,
+          notifyEmail: '',
+          currencySymbol: '¥',
+        },
+      });
+      safeReply = fallback.replyText;
+      return {
+        safeReply,
+        requiresHumanReview: true,
+        reviewReasons,
+        reasoningSteps,
+        isPrivacyBreached: true,
+      };
+    }
+
+    reasoningSteps.push('✔ 商业隐私合规：回复未泄露供应商、内部采购单号及进货成本');
+
+    // 2. 物流时效过度承诺校验
+    if (!order?.trackingNumber || order.orderStatus === 'paid_pending_shipment') {
+      if (/保证明天|保证\d+天内送达|保证今天到|明天一定到|后天必达/.test(replyText)) {
+        requiresHumanReview = true;
+        reviewReasons.push('【时效核验预警】订单尚处于排产质检中，大模型输出了确定性到货承诺，需人工审核确认');
+        reasoningSteps.push('⚠️ 物流时效预警：检测到确定性送达时间承诺');
+      }
+    }
+
+    // 3. 售后与退款承诺校验
+    if (/立即为您全额退款|款项已原路退回|退款已到账/.test(replyText)) {
+      requiresHumanReview = true;
+      reviewReasons.push('【售后核验预警】大模型回复中包含了即时退款承诺，需人工核对退款审批流程');
+      reasoningSteps.push('⚠️ 售后政策预警：检测到退款承诺，需人工核查');
+    }
+
+    // 4. 超出知识库需要人工跟进
+    if (/转交人工|人工客服进一步确认|稍后为您核实|记录并反馈/.test(replyText)) {
+      requiresHumanReview = true;
+      reviewReasons.push('【人工跟进预警】模型研判该问题超出标准知识库，提示需要人工跟进核实');
+      reasoningSteps.push('ℹ️ 模型提示：当前咨询涉及特殊诉求，建议人工跟进');
+    }
+
+    if (reviewReasons.length > 0) {
+      requiresHumanReview = true;
+    }
+
+    return {
+      safeReply,
+      requiresHumanReview,
+      reviewReasons,
+      reasoningSteps,
+      isPrivacyBreached: false,
+    };
+  }
+
+  /**
+   * 检查本地 DeepSeek 代理服务状态
+   */
+  static async checkServerStatus(): Promise<{ online: boolean; configured: boolean; model: string }> {
+    try {
+      const res = await fetch('/api/deepseek/status', {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(3000),
+      });
+      if (!res.ok) {
+        return { online: false, configured: false, model: 'unknown' };
+      }
+      const data = await res.json();
+      return {
+        online: true,
+        configured: Boolean(data.configured),
+        model: data.model || 'deepseek-chat',
+      };
+    } catch {
+      return { online: false, configured: false, model: 'offline' };
+    }
+  }
+
+  /**
+   * 真实 DeepSeek 模型回复生成（通过本地 Node 服务端安全代理）
+   */
+  static async generateDeepSeekReply(params: GenerateReplyParams): Promise<GeneratedReplyResult> {
+    const { customerQuery, order, product, policies, settings, conversationHistory } = params;
+
+    // 1. 发送前数据脱敏
+    const { sanitizedOrder, sanitizedProduct } = this.sanitizeContextForAI(order, product);
+
+    try {
+      const res = await fetch('/api/deepseek/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customerQuery,
+          order: sanitizedOrder,
+          product: sanitizedProduct,
+          policies,
+          settings,
+          conversationHistory: conversationHistory?.map((m) => ({
+            sender: m.sender,
+            content: m.content,
+          })),
+        }),
+        signal: AbortSignal.timeout(22000),
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || `服务端响应错误 [${res.status}]`);
+      }
+
+      const data = await res.json();
+      const rawReply = (data.replyText || '').trim();
+
+      // 2. 独立安全检查
+      const safety = this.checkDeepSeekReplySafety(rawReply, { order, product, policies });
+
+      return {
+        replyText: safety.safeReply,
+        reasoningSteps: [
+          `【DeepSeek 模型推理】已成功连接本地 AI 服务，调用模型: ${data.model || 'deepseek-chat'}`,
+          '【隐私脱敏保障】向大模型发送的数据已隐去供应商名称、采购单号、采购成本及客户联系方式',
+          ...safety.reasoningSteps,
+        ],
+        intent: 'general',
+        confidence: 0.98,
+        requiresHumanReview: safety.requiresHumanReview,
+        reviewReasons: safety.reviewReasons,
+        source: 'deepseek',
+        model: data.model || 'deepseek-chat',
+        usage: data.usage || null,
+      };
+    } catch (err: any) {
+      console.warn('[DeepSeek] 调用异常，系统自动无缝降级为规则引擎:', err.message);
+
+      // 3. 失败时无缝优雅降级为规则引擎
+      const fallback = this.generateReply(params);
+      return {
+        ...fallback,
+        reasoningSteps: [
+          `⚠️ 【降级运行】未能连接本地 DeepSeek 服务（原因: ${err.message || '网络超时或未启动服务'}）`,
+          '已自动平滑回退至确定性规则引擎，保证客服业务不中断。',
+          ...fallback.reasoningSteps,
+        ],
+        source: 'rule',
+      };
+    }
+  }
 }

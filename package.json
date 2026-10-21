@@ -5,9 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:ai": "node scripts/dev-ai.js",
+    "server": "node server/index.js",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test": "node --experimental-strip-types --test tests/aiEngine.test.ts tests/workflow.test.ts",
+    "test": "node --experimental-strip-types --test tests/aiEngine.test.ts tests/workflow.test.ts tests/deepseek.test.ts",
     "generate-media": "node scripts/generate-media.js",
     "deploy": "node scripts/deploy.js"
   },

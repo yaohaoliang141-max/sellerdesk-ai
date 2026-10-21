@@ -14,7 +14,9 @@ import {
   Info,
   ChevronDown,
   AlertTriangle,
-  ShieldAlert
+  ShieldAlert,
+  Bot,
+  Cpu
 } from 'lucide-react';
 import {
   Conversation,
@@ -23,7 +25,8 @@ import {
   StorePolicies,
   StoreSettings,
   Message,
-  GeneratedReplyResult
+  GeneratedReplyResult,
+  AIMode
 } from '../../types';
 import { Badge } from '../common/Badge';
 import { AIEngineService } from '../../services/aiEngine';
@@ -110,6 +113,24 @@ export const InboxView: React.FC<InboxViewProps> = ({
   const [showRightContext, setShowRightContext] = useState(true);
   const [mobileTab, setMobileTab] = useState<'list' | 'chat' | 'detail'>('chat');
 
+  // AI Mode & Local Proxy Server Status
+  const [aiMode, setAiMode] = useState<AIMode>('rule');
+  const [serverStatus, setServerStatus] = useState<{
+    online: boolean;
+    configured: boolean;
+    model: string;
+  }>({
+    online: false,
+    configured: false,
+    model: 'deepseek-chat',
+  });
+
+  useEffect(() => {
+    AIEngineService.checkServerStatus().then((status) => {
+      setServerStatus(status);
+    });
+  }, []);
+
   // Switch conversation helper
   const handleSwitchConversation = (convId: string) => {
     setSelectedConvId(convId);
@@ -131,34 +152,68 @@ export const InboxView: React.FC<InboxViewProps> = ({
   };
 
   // Trigger AI Suggestion
-  const handleGenerateReply = () => {
-    if (!customerQueryInput.trim()) {
+  const handleGenerateReply = async (customQuery?: string) => {
+    const q = (customQuery !== undefined ? customQuery : customerQueryInput).trim();
+    if (!q) {
       onShowToast('请输入或选择客户的问题', 'error');
       return;
     }
 
     setIsGenerating(true);
-    setTimeout(() => {
-      const result = AIEngineService.generateReply({
-        customerQuery: customerQueryInput,
-        order: activeOrder,
-        product: activeProduct,
-        policies,
-        settings,
-        conversationHistory: activeConversation?.messages,
-      });
 
-      setAiResult(result);
-      setEditedReply(result.replyText);
-      setIsReviewedByUser(false); // Reset review confirmation on new generation
-      setIsGenerating(false);
+    if (aiMode === 'deepseek') {
+      onShowToast('正在调用本地 DeepSeek 模型研判生成...', 'info');
+      try {
+        const result = await AIEngineService.generateDeepSeekReply({
+          customerQuery: q,
+          order: activeOrder,
+          product: activeProduct,
+          policies,
+          settings,
+          conversationHistory: activeConversation?.messages,
+        });
 
-      if (result.requiresHumanReview) {
-        onShowToast('回复已生成，检测到未核实事项，需人工审核确认', 'info');
-      } else {
-        onShowToast('AI 建议回复生成完毕，已结合订单真实状态与知识库', 'success');
+        setAiResult(result);
+        setEditedReply(result.replyText);
+        setIsReviewedByUser(false);
+        setIsGenerating(false);
+
+        if (result.source === 'deepseek') {
+          if (result.requiresHumanReview) {
+            onShowToast('DeepSeek 已生成建议，触发独立安全规则，需人工复核确认', 'info');
+          } else {
+            onShowToast('DeepSeek 自然语言回复生成完毕，已通过独立安全检查', 'success');
+          }
+        } else {
+          onShowToast('本地 AI 服务未启动或未配置 API Key，已自动平滑降级至规则引擎', 'info');
+        }
+      } catch (err: any) {
+        setIsGenerating(false);
+        onShowToast(`大模型调用异常: ${err.message}`, 'error');
       }
-    }, 280);
+    } else {
+      setTimeout(() => {
+        const result = AIEngineService.generateReply({
+          customerQuery: q,
+          order: activeOrder,
+          product: activeProduct,
+          policies,
+          settings,
+          conversationHistory: activeConversation?.messages,
+        });
+
+        setAiResult(result);
+        setEditedReply(result.replyText);
+        setIsReviewedByUser(false);
+        setIsGenerating(false);
+
+        if (result.requiresHumanReview) {
+          onShowToast('回复已生成，检测到未核实事项，需人工审核确认', 'info');
+        } else {
+          onShowToast('规则引擎回复生成完毕，已结合订单真实状态与知识库', 'success');
+        }
+      }, 250);
+    }
   };
 
   // Copy reply to clipboard
@@ -503,6 +558,77 @@ export const InboxView: React.FC<InboxViewProps> = ({
 
         {/* AI Reply Copilot Zone */}
         <div className="p-4 border-t border-zinc-200/80 bg-white space-y-3 shrink-0">
+          {/* Engine Mode Switcher Bar */}
+          <div className="flex flex-wrap items-center justify-between gap-2 pb-1 border-b border-zinc-100">
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-semibold text-zinc-500 flex items-center gap-1">
+                <Bot className="w-3.5 h-3.5 text-zinc-600" />
+                回复引擎:
+              </span>
+              <div className="inline-flex rounded-lg bg-zinc-100 p-0.5 text-xs font-medium border border-zinc-200/60">
+                <button
+                  type="button"
+                  onClick={() => setAiMode('rule')}
+                  className={`px-2.5 py-1 rounded-md transition-all flex items-center gap-1.5 ${
+                    aiMode === 'rule'
+                      ? 'bg-white text-zinc-900 shadow-2xs font-semibold'
+                      : 'text-zinc-500 hover:text-zinc-800'
+                  }`}
+                >
+                  <Sparkles className="w-3 h-3 text-amber-500" />
+                  <span>模拟规则引擎</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAiMode('deepseek');
+                    AIEngineService.checkServerStatus().then(setServerStatus);
+                  }}
+                  className={`px-2.5 py-1 rounded-md transition-all flex items-center gap-1.5 ${
+                    aiMode === 'deepseek'
+                      ? 'bg-white text-sky-700 shadow-2xs font-semibold'
+                      : 'text-zinc-500 hover:text-zinc-800'
+                  }`}
+                >
+                  <Cpu className="w-3 h-3 text-sky-600" />
+                  <span>真实 DeepSeek 模型</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Status pill */}
+            <div className="flex items-center gap-1.5 text-[11px]">
+              {aiMode === 'deepseek' ? (
+                serverStatus.online ? (
+                  serverStatus.configured ? (
+                    <span className="text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full flex items-center gap-1 font-medium shadow-2xs">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                      本地服务在线 · 模型: {serverStatus.model}
+                    </span>
+                  ) : (
+                    <span
+                      className="text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full flex items-center gap-1 font-medium shadow-2xs"
+                      title="请在根目录 .env 文件中设置 DEEPSEEK_API_KEY"
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                      服务在线 · 需在 .env 填入 API Key
+                    </span>
+                  )
+                ) : (
+                  <span
+                    className="text-zinc-600 bg-zinc-100 border border-zinc-200 px-2 py-0.5 rounded-full flex items-center gap-1"
+                    title="运行 npm run dev:ai 启动本地服务与前端"
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-zinc-400"></span>
+                    本地代理未启动 (运行 npm run dev:ai 即可连接)
+                  </span>
+                )
+              ) : (
+                <span className="text-zinc-400">确定性领域规则 · 离线零依赖</span>
+              )}
+            </div>
+          </div>
+
           {/* Quick preset queries */}
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-[11px] text-zinc-400 flex items-center gap-1">
@@ -521,17 +647,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
                 key={idx}
                 onClick={() => {
                   setCustomerQueryInput(preset);
-                  const result = AIEngineService.generateReply({
-                    customerQuery: preset,
-                    order: activeOrder,
-                    product: activeProduct,
-                    policies,
-                    settings,
-                  });
-                  setAiResult(result);
-                  setEditedReply(result.replyText);
-                  setIsReviewedByUser(false);
-                  onShowToast(`已载入场景：“${preset}” 并生成建议`, 'success');
+                  handleGenerateReply(preset);
                 }}
                 className="px-2 py-0.8 text-[11px] bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded-md transition-colors"
               >
@@ -555,12 +671,28 @@ export const InboxView: React.FC<InboxViewProps> = ({
               />
             </div>
             <button
-              onClick={handleGenerateReply}
+              onClick={() => handleGenerateReply()}
               disabled={isGenerating}
-              className="px-4 py-2 bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-all disabled:opacity-50 shrink-0"
+              className={`px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-all disabled:opacity-50 shrink-0 text-white ${
+                aiMode === 'deepseek'
+                  ? 'bg-gradient-to-r from-indigo-600 to-sky-600 hover:from-indigo-500 hover:to-sky-500'
+                  : 'bg-zinc-900 hover:bg-zinc-800'
+              }`}
             >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>{isGenerating ? '正在研判订单与规则...' : 'AI 生成回复'}</span>
+              {aiMode === 'deepseek' ? (
+                <Cpu className="w-3.5 h-3.5" />
+              ) : (
+                <Sparkles className="w-3.5 h-3.5" />
+              )}
+              <span>
+                {isGenerating
+                  ? aiMode === 'deepseek'
+                    ? 'DeepSeek 模型研判中...'
+                    : '正在研判订单与规则...'
+                  : aiMode === 'deepseek'
+                  ? 'DeepSeek 生成回复'
+                  : '规则引擎生成'}
+              </span>
             </button>
           </div>
 
@@ -570,15 +702,27 @@ export const InboxView: React.FC<InboxViewProps> = ({
               {/* Header */}
               <div className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-2.5 pb-2.5 border-b border-sky-100">
                 <div className="flex items-center gap-2 min-w-0">
-                  <div className="w-5 h-5 rounded-md bg-sky-600 text-white flex items-center justify-center shrink-0">
-                    <Sparkles className="w-3 h-3" />
+                  <div
+                    className={`w-5 h-5 rounded-md text-white flex items-center justify-center shrink-0 ${
+                      aiResult.source === 'deepseek' ? 'bg-indigo-600' : 'bg-sky-600'
+                    }`}
+                  >
+                    {aiResult.source === 'deepseek' ? (
+                      <Cpu className="w-3 h-3" />
+                    ) : (
+                      <Sparkles className="w-3 h-3" />
+                    )}
                   </div>
                   <div className="flex items-center gap-2 min-w-0 flex-wrap">
                     <span className="text-xs font-bold text-zinc-900 whitespace-nowrap">
-                      AI 建议回复
+                      {aiResult.source === 'deepseek'
+                        ? 'DeepSeek 大模型建议回复'
+                        : 'AI 建议回复 (规则引擎)'}
                     </span>
                     <span className="text-[10px] text-sky-700 bg-sky-100/60 px-1.5 py-0.5 rounded border border-sky-200/50 whitespace-nowrap">
-                      事实对齐 · 商业隐私已脱敏
+                      {aiResult.source === 'deepseek'
+                        ? `${aiResult.model || 'deepseek-chat'} · 独立安全审查`
+                        : '事实对齐 · 商业隐私已脱敏'}
                     </span>
                   </div>
                 </div>
