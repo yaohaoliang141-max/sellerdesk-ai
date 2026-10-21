@@ -46,7 +46,7 @@ export const Layout: React.FC<LayoutProps> = ({
           onResetData={onResetData}
         />
 
-        <main className="flex-1 p-4 md:p-8 max-w-7xl w-full mx-auto">
+        <main className="flex-1 p-3 sm:p-5 lg:p-6 max-w-[1536px] w-full mx-auto">
           {children}
         </main>
       </div>

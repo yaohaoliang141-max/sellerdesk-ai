@@ -108,10 +108,12 @@ export const InboxView: React.FC<InboxViewProps> = ({
   const [editedReply, setEditedReply] = useState<string>('');
   const [isReviewedByUser, setIsReviewedByUser] = useState<boolean>(false);
   const [showRightContext, setShowRightContext] = useState(true);
+  const [mobileTab, setMobileTab] = useState<'list' | 'chat' | 'detail'>('chat');
 
   // Switch conversation helper
   const handleSwitchConversation = (convId: string) => {
     setSelectedConvId(convId);
+    setMobileTab('chat');
     if (onSelectConversation) {
       onSelectConversation(convId);
     }
@@ -254,7 +256,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
   return (
     <div className="bg-white rounded-2xl border border-zinc-200/90 shadow-xs flex flex-col lg:flex-row h-[calc(100vh-140px)] min-h-[640px] overflow-hidden">
       {/* 1. Left Panel: Conversations List */}
-      <div className="w-full lg:w-80 border-r border-zinc-200/80 flex flex-col shrink-0 bg-zinc-50/40">
+      <div className={`w-full lg:w-72 border-r border-zinc-200/80 shrink-0 bg-zinc-50/40 ${mobileTab === 'list' ? 'flex flex-col' : 'hidden lg:flex flex-col'}`}>
         {/* Search & Tabs */}
         <div className="p-3.5 border-b border-zinc-100 space-y-2.5">
           <div className="relative">
@@ -364,31 +366,50 @@ export const InboxView: React.FC<InboxViewProps> = ({
       </div>
 
       {/* 2. Center Panel: Chat + AI Copilot */}
-      <div className="flex-1 flex flex-col min-w-0 bg-white">
+      <div className={`flex-1 flex-col min-w-0 bg-white ${mobileTab === 'chat' ? 'flex' : 'hidden lg:flex'}`}>
+        {/* Mobile Navigation Header */}
+        <div className="flex lg:hidden items-center justify-between px-3.5 py-2 bg-zinc-50 border-b border-zinc-200 text-xs">
+          <button
+            onClick={() => setMobileTab('list')}
+            className="flex items-center gap-1 font-medium text-zinc-600 hover:text-zinc-900"
+          >
+            <span>← 会话列表</span>
+          </button>
+          <span className="font-semibold text-zinc-800 truncate max-w-[150px]">
+            {activeConversation?.customerName}
+          </span>
+          <button
+            onClick={() => setMobileTab('detail')}
+            className="flex items-center gap-1 font-medium text-sky-700 hover:text-sky-900"
+          >
+            <span>订单详情 →</span>
+          </button>
+        </div>
+
         {/* Chat Header */}
         {activeConversation ? (
-          <div className="px-5 py-3 border-b border-zinc-100 flex items-center justify-between bg-white shrink-0">
-            <div className="flex items-center gap-3">
-              <div>
+          <div className="px-4 lg:px-5 py-3 border-b border-zinc-100 flex flex-wrap lg:flex-nowrap items-center justify-between gap-2.5 bg-white shrink-0">
+            <div className="flex items-center gap-3 min-w-0 flex-1">
+              <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-bold text-zinc-900">
+                  <h3 className="text-sm font-bold text-zinc-900 truncate">
                     {activeConversation.customerName}
                   </h3>
-                  <span className="text-xs text-zinc-400">
+                  <span className="text-xs text-zinc-400 truncate hidden sm:inline">
                     ({activeConversation.customerEmail})
                   </span>
                 </div>
 
-                <div className="flex items-center gap-2 mt-0.5">
-                  <span className="text-xs text-zinc-500">关联销售订单:</span>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <span className="text-[11px] text-zinc-400 shrink-0">关联订单:</span>
                   <select
                     value={selectedOrderId}
                     onChange={(e) => handleSwitchOrder(e.target.value)}
-                    className="text-xs font-mono font-medium text-sky-800 bg-sky-50 border border-sky-200 rounded px-1.5 py-0.5 focus:outline-none"
+                    className="text-xs font-mono font-medium text-sky-800 bg-sky-50 border border-sky-200 rounded px-1.5 py-0.5 focus:outline-none max-w-[170px] sm:max-w-[220px] truncate"
                   >
                     {orders.map((o) => (
                       <option key={o.id} value={o.id}>
-                        {o.id} - {o.productName} ({AIEngineService.getOrderStatusLabel(o.orderStatus)})
+                        {o.id} - {o.productName}
                       </option>
                     ))}
                   </select>
@@ -396,7 +417,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 shrink-0 ml-auto">
               <button
                 onClick={() => {
                   const updatedConvs = conversations.map((conv) => {
@@ -411,16 +432,16 @@ export const InboxView: React.FC<InboxViewProps> = ({
                   onUpdateConversations(updatedConvs);
                   onShowToast('工单状态已切换', 'info');
                 }}
-                className="text-xs font-medium px-2.5 py-1.5 rounded-lg border border-zinc-200 hover:bg-zinc-50 transition-colors text-zinc-700"
+                className="text-xs font-medium px-2.5 py-1.5 rounded-lg border border-zinc-200 hover:bg-zinc-50 transition-colors text-zinc-700 whitespace-nowrap shrink-0"
               >
-                {activeConversation.status === 'resolved' ? '设为待处理' : '直接标记为已解决'}
+                {activeConversation.status === 'resolved' ? '设为待处理' : '标记已解决'}
               </button>
 
               <button
                 onClick={() => setShowRightContext(!showRightContext)}
-                className="hidden xl:flex text-xs font-medium px-2.5 py-1.5 rounded-lg border border-zinc-200 hover:bg-zinc-50 transition-colors text-zinc-700"
+                className="hidden xl:inline-flex text-xs font-medium px-2.5 py-1.5 rounded-lg border border-zinc-200 hover:bg-zinc-50 transition-colors text-zinc-700 whitespace-nowrap shrink-0"
               >
-                {showRightContext ? '收起订单详情' : '展开订单详情'}
+                {showRightContext ? '收起详情' : '展开详情'}
               </button>
             </div>
           </div>
@@ -547,25 +568,25 @@ export const InboxView: React.FC<InboxViewProps> = ({
           {aiResult && (
             <div className="p-4 rounded-xl bg-gradient-to-b from-sky-50/40 via-white to-white border border-sky-200/80 shadow-xs space-y-3 animate-in fade-in">
               {/* Header */}
-              <div className="flex items-center justify-between pb-2 border-b border-sky-100">
-                <div className="flex items-center gap-2">
-                  <div className="w-5 h-5 rounded-md bg-sky-600 text-white flex items-center justify-center">
+              <div className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-2.5 pb-2.5 border-b border-sky-100">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="w-5 h-5 rounded-md bg-sky-600 text-white flex items-center justify-center shrink-0">
                     <Sparkles className="w-3 h-3" />
                   </div>
-                  <div>
-                    <span className="text-xs font-bold text-zinc-900">
-                      AI 建议回复（可直接在线修改）
+                  <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                    <span className="text-xs font-bold text-zinc-900 whitespace-nowrap">
+                      AI 建议回复
                     </span>
-                    <span className="text-[10px] text-sky-700 ml-2">
-                      严格遵循真实事实 · 商业隐私已自动脱敏
+                    <span className="text-[10px] text-sky-700 bg-sky-100/60 px-1.5 py-0.5 rounded border border-sky-200/50 whitespace-nowrap">
+                      事实对齐 · 商业隐私已脱敏
                     </span>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 shrink-0 ml-auto">
                   <button
                     onClick={handleCopyReply}
-                    className="inline-flex items-center gap-1 text-[11px] text-zinc-600 hover:text-zinc-900 bg-white border border-zinc-200 px-2 py-1 rounded-md transition-colors"
+                    className="inline-flex items-center gap-1 text-[11px] text-zinc-600 hover:text-zinc-900 bg-white border border-zinc-200 px-2.5 py-1 rounded-md transition-colors whitespace-nowrap shrink-0"
                   >
                     <Copy className="w-3 h-3" />
                     <span>复制回复</span>
@@ -573,7 +594,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
 
                   <button
                     onClick={handleConfirmAndSave}
-                    className={`inline-flex items-center gap-1.5 text-[11px] text-white px-3 py-1.5 rounded-md font-semibold transition-colors shadow-2xs ${
+                    className={`inline-flex items-center gap-1.5 text-[11px] text-white px-3 py-1.5 rounded-md font-semibold transition-colors shadow-2xs whitespace-nowrap shrink-0 ${
                       aiResult.requiresHumanReview && !isReviewedByUser
                         ? 'bg-amber-700 hover:bg-amber-800'
                         : 'bg-zinc-900 hover:bg-zinc-800'
@@ -584,7 +605,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
                         : '确认保存回复并将工单标记为已解决'
                     }
                   >
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                     <span>
                       {aiResult.requiresHumanReview && !isReviewedByUser
                         ? '保存模拟回复 (待复核)'
@@ -683,7 +704,18 @@ export const InboxView: React.FC<InboxViewProps> = ({
 
       {/* 3. Right Panel: Order & Context Drawer */}
       {showRightContext && (
-        <div className="w-full lg:w-80 border-t lg:border-t-0 lg:border-l border-zinc-200/80 bg-zinc-50/50 shrink-0">
+        <div className={`w-full lg:w-80 border-t lg:border-t-0 lg:border-l border-zinc-200/80 bg-zinc-50/50 shrink-0 ${mobileTab === 'detail' ? 'flex flex-col' : 'hidden lg:flex flex-col'}`}>
+          {/* Mobile Back Button */}
+          <div className="flex lg:hidden items-center justify-between p-3.5 bg-zinc-50 border-b border-zinc-200 text-xs font-medium">
+            <button
+              onClick={() => setMobileTab('chat')}
+              className="flex items-center gap-1 text-zinc-700 hover:text-zinc-900"
+            >
+              <span>← 返回客服会话</span>
+            </button>
+            <span className="font-mono text-zinc-500">{activeOrder?.id}</span>
+          </div>
+
           <OrderContextSidebar
             order={activeOrder}
             product={activeProduct}

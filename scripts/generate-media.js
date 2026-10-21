@@ -17,9 +17,9 @@ const tempDir = path.join(rootDir, '.temp_media');
 if (!fs.existsSync(mediaDir)) fs.mkdirSync(mediaDir, { recursive: true });
 if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
 
-function run(command) {
+function run(command, cwd = rootDir) {
   console.log(`> ${command}`);
-  execSync(command, { stdio: 'inherit' });
+  execSync(command, { stdio: 'inherit', cwd });
 }
 
 // Simple static HTTP server for dist/
@@ -88,10 +88,14 @@ async function smoothType(page, selector, text, delay = 35) {
 async function main() {
   console.log('=== SellerDesk AI 媒体资源生成程序 ===\n');
 
-  // Verify build
-  if (!fs.existsSync(path.join(distDir, 'index.html'))) {
-    console.log('正在构建前端资源...');
+  // Requirement 3: Always build the latest source first; abort if failed!
+  console.log('1. 正在重新构建最新前端代码 (npm run build)...');
+  try {
     run('npm run build');
+    console.log('✅ 前端构建通过，确保素材来自当前最新源码！\n');
+  } catch (err) {
+    console.error('❌ 前端构建失败，中止媒体生成程序！', err.message);
+    process.exit(1);
   }
 
   const server = await startStaticServer(5199);
@@ -103,9 +107,9 @@ async function main() {
 
   try {
     // ----------------------------------------------------
-    // Step A: 制作 5 张高清真实产品截图
+    // Step A: 制作高清真实产品截图 (桌面端 1440px + 移动端 390px)
     // ----------------------------------------------------
-    console.log('\n--- 1. 生成 5 张高清产品截图 ---');
+    console.log('\n--- 2. 生成桌面与移动端高清产品截图 ---');
     {
       const context = await browser.newContext({
         viewport: { width: 1440, height: 900 },
@@ -122,7 +126,7 @@ async function main() {
         fullPage: false,
       });
 
-      // 2. orders.png
+      // 2. orders.png (Full table without empty holes)
       console.log('截取: orders.png (销售与采购协同订单)');
       await smoothMoveAndClick(page, 'button:has-text("订单管理")', 600);
       await page.screenshot({
@@ -130,7 +134,7 @@ async function main() {
         fullPage: false,
       });
 
-      // 3. inbox.png (AI 客服工作台与人工审核)
+      // 3. inbox.png (AI 客服工作台与人工审核，无任何文字换行拥挤)
       console.log('截取: inbox.png (AI 客服工作台与人工审核)');
       await smoothMoveAndClick(page, 'button:has-text("AI 客服")', 600);
       const queryBtn = page.locator('button:has-text("什么时候发货？")').first();
@@ -143,7 +147,7 @@ async function main() {
         fullPage: false,
       });
 
-      // 4. knowledge.png
+      // 4. knowledge.png (4 product cards grid with specs and policies)
       console.log('截取: knowledge.png (商品规格与知识库政策)');
       await smoothMoveAndClick(page, 'button:has-text("商品知识库")', 600);
       await page.screenshot({
@@ -154,9 +158,9 @@ async function main() {
       await context.close();
     }
 
-    // 5. mobile.png (iPhone 14: 390x844)
+    // 5. Mobile screenshots (iPhone 14: 390x844)
     {
-      console.log('截取: mobile.png (移动端适配)');
+      console.log('截取: 移动端功能截图 (Dashboard, AI Inbox, Orders)');
       const mobileContext = await browser.newContext({
         viewport: { width: 390, height: 844 },
         deviceScaleFactor: 2,
@@ -165,17 +169,53 @@ async function main() {
       const page = await mobileContext.newPage();
       await page.goto(baseUrl);
       await page.waitForTimeout(800);
+
+      // mobile-overview.png
+      console.log('截取: mobile-overview.png (移动端总览)');
       await page.screenshot({
-        path: path.join(mediaDir, 'mobile.png'),
+        path: path.join(mediaDir, 'mobile-overview.png'),
         fullPage: false,
       });
+      fs.copyFileSync(path.join(mediaDir, 'mobile-overview.png'), path.join(mediaDir, 'mobile.png'));
+
+      // Helper to navigate via mobile drawer
+      const navigateMobile = async (tabName) => {
+        const menuBtn = page.locator('header button.md\\:hidden').first();
+        await menuBtn.click();
+        await page.waitForTimeout(400);
+        await page.locator(`aside button:has-text("${tabName}")`).first().click();
+        await page.waitForTimeout(600);
+      };
+
+      // mobile-inbox.png: Open AI Inbox on mobile
+      console.log('截取: mobile-inbox.png (移动端客服工作台)');
+      await navigateMobile('AI 客服');
+      const mobileQueryBtn = page.locator('button:has-text("什么时候发货？")').first();
+      if (await mobileQueryBtn.count() > 0) {
+        await mobileQueryBtn.click();
+        await page.waitForTimeout(600);
+      }
+      await page.screenshot({
+        path: path.join(mediaDir, 'mobile-inbox.png'),
+        fullPage: false,
+      });
+
+      // mobile-orders.png: Open Orders on mobile
+      console.log('截取: mobile-orders.png (移动端订单协同)');
+      await navigateMobile('订单管理');
+      await page.screenshot({
+        path: path.join(mediaDir, 'mobile-orders.png'),
+        fullPage: false,
+      });
+
       await mobileContext.close();
+      console.log('✅ 移动端截图生成完毕 (mobile-overview.png, mobile-inbox.png, mobile-orders.png)');
     }
 
     // ----------------------------------------------------
     // Step B: 录制 12-14 秒核心业务流程并生成 demo.gif
     // ----------------------------------------------------
-    console.log('\n--- 2. 录制核心协同流程 GIF (创建订单 → 关联采购 → 客服研判 → 审核保存) ---');
+    console.log('\n--- 3. 录制核心协同流程 GIF (创建订单 → 关联采购 → 客服研判 → 审核保存) ---');
     const gifVideoDir = path.join(tempDir, 'gif_record');
     if (!fs.existsSync(gifVideoDir)) fs.mkdirSync(gifVideoDir, { recursive: true });
 
@@ -204,7 +244,7 @@ async function main() {
       // 4. Submit order (立即创建)
       await smoothMoveAndClick(page, 'button[type="submit"]:has-text("立即创建")', 800);
 
-      // 5. Click 前往客服 on the first order
+      // 5. Click 前往客服 on the newly created order
       const goToInboxBtn = page.locator('button[title*="前往客服"]').first();
       await goToInboxBtn.waitFor({ state: 'visible', timeout: 5000 });
       await smoothMoveAndClick(page, 'button[title*="前往客服"]', 800);
@@ -239,82 +279,82 @@ async function main() {
     }
 
     // ----------------------------------------------------
-    // Step C: 录制 45-55 秒完整产品演示视频 demo.mp4
+    // Step C: 录制真实 1920x1080 (1080P)、45-60秒完整产品演示视频 demo.mp4
     // ----------------------------------------------------
-    console.log('\n--- 3. 录制 45-55 秒完整产品演示视频 demo.mp4 ---');
+    console.log('\n--- 4. 录制真实 1920x1080 (1080P)、45-60 秒完整产品演示视频 demo.mp4 ---');
     const fullVideoDir = path.join(tempDir, 'full_record');
     if (!fs.existsSync(fullVideoDir)) fs.mkdirSync(fullVideoDir, { recursive: true });
 
     {
       const context = await browser.newContext({
-        viewport: { width: 1440, height: 900 },
+        viewport: { width: 1920, height: 1080 },
         recordVideo: {
           dir: fullVideoDir,
-          size: { width: 1440, height: 900 },
+          size: { width: 1920, height: 1080 },
         },
       });
       const page = await context.newPage();
       await page.goto(baseUrl);
 
-      // 0-8s: Overview Dashboard
-      console.log('视频章节 1/5: 总览仪表盘');
-      await page.waitForTimeout(1500);
-      await page.mouse.move(350, 180, { steps: 12 });
-      await page.waitForTimeout(800);
-      await page.mouse.move(650, 180, { steps: 12 });
-      await page.waitForTimeout(800);
-      await page.mouse.move(950, 180, { steps: 12 });
-      await page.waitForTimeout(800);
-      await page.mouse.move(700, 480, { steps: 12 });
+      // 0-9s: Overview Dashboard
+      console.log('视频章节 1/5: 总览仪表盘 (0-9s)');
       await page.waitForTimeout(2000);
+      await page.mouse.move(450, 200, { steps: 15 });
+      await page.waitForTimeout(1000);
+      await page.mouse.move(800, 200, { steps: 15 });
+      await page.waitForTimeout(1000);
+      await page.mouse.move(1150, 200, { steps: 15 });
+      await page.waitForTimeout(1000);
+      await page.mouse.move(800, 520, { steps: 15 });
+      await page.waitForTimeout(2500);
 
-      // 8-22s: Orders & Procurement
-      console.log('视频章节 2/5: 订单与采购供应链协同');
-      await smoothMoveAndClick(page, 'button:has-text("订单管理")', 1200);
+      // 9-23s: Orders & Procurement Linkage
+      console.log('视频章节 2/5: 订单与采购供应链协同 (9-23s)');
+      await smoothMoveAndClick(page, 'button:has-text("订单管理")', 1500);
 
-      // Mouse over orders table
-      await page.mouse.move(700, 320, { steps: 12 });
-      await page.waitForTimeout(1200);
+      // Browse orders table
+      await page.mouse.move(960, 360, { steps: 15 });
+      await page.waitForTimeout(1500);
 
       // Click create order
-      await smoothMoveAndClick(page, 'button:has-text("创建新测试订单")', 800);
-      await smoothType(page, 'input[placeholder*="周杰"]', '陈建国', 35);
-      await page.waitForTimeout(600);
-      await smoothMoveAndClick(page, 'button[type="submit"]:has-text("立即创建")', 1200);
+      await smoothMoveAndClick(page, 'button:has-text("创建新测试订单")', 1000);
+      await smoothType(page, 'input[placeholder*="周杰"]', '陈建国', 40);
+      await page.waitForTimeout(800);
+      await smoothMoveAndClick(page, 'button[type="submit"]:has-text("立即创建")', 1500);
 
-      // 22-42s: AI Inbox Copilot & Human Review
-      console.log('视频章节 3/5: AI 客服工作台、研判与人工审核');
-      await smoothMoveAndClick(page, 'button[title*="前往客服"]', 1200);
+      // 23-45s: AI Inbox Copilot, Multi-tier status & Human Review
+      console.log('视频章节 3/5: AI 客服工作台、研判与人工审核 (23-45s)');
+      await smoothMoveAndClick(page, 'button[title*="前往客服"]', 1500);
 
-      // View order context
-      await page.mouse.move(1250, 260, { steps: 12 });
-      await page.waitForTimeout(1200);
+      // Inspect right context drawer
+      await page.mouse.move(1650, 320, { steps: 15 });
+      await page.waitForTimeout(1500);
 
       // Click quick question: 什么时候发货？
-      await smoothMoveAndClick(page, 'button:has-text("什么时候发货？")', 1500);
+      await smoothMoveAndClick(page, 'button:has-text("什么时候发货？")', 1800);
 
-      // Hover over warning banner
-      await page.mouse.wheel(0, 150);
-      await page.waitForTimeout(1200);
-
-      // Check Human Review confirmation checkbox
-      await smoothMoveAndClick(page, 'label:has-text("我已人工核验无误")', 1000);
-
-      // Click save reply
-      await smoothMoveAndClick(page, 'button:has-text("保存模拟回复")', 1500);
+      // Scroll to view AI suggestions & reasoning
+      await page.mouse.wheel(0, 180);
+      await page.waitForTimeout(1800);
 
       // Query another scenario: 支持开具发票吗？
       const invoiceBtn = page.locator('button:has-text("支持开具发票吗？")').first();
       if (await invoiceBtn.count() > 0) {
-        await smoothMoveAndClick(page, 'button:has-text("支持开具发票吗？")', 1500);
-        await page.waitForTimeout(1500);
+        await smoothMoveAndClick(page, 'button:has-text("支持开具发票吗？")', 2000);
+        await page.waitForTimeout(1800);
       }
 
-      // 42-50s: Knowledge Base
-      console.log('视频章节 4/5: 商品知识库与规则政策');
+      // Check Human Review confirmation checkbox
+      await smoothMoveAndClick(page, 'label:has-text("我已人工核验无误")', 1200);
+
+      // Click save reply
+      await smoothMoveAndClick(page, 'button:has-text("保存模拟回复")', 1800);
+
+      // 45-53s: Knowledge Base & Policies
+      console.log('视频章节 4/5: 商品知识库与规则政策 (45-53s)');
       await smoothMoveAndClick(page, 'button:has-text("商品知识库")', 1500);
-      await page.mouse.move(500, 350, { steps: 12 });
-      await page.waitForTimeout(1200);
+      await page.mouse.move(650, 420, { steps: 15 });
+      await page.waitForTimeout(1500);
 
       // Click 发货与时效规则 tab
       const shippingTab = page.locator('button:has-text("发货与时效规则")').first();
@@ -328,36 +368,49 @@ async function main() {
         await smoothMoveAndClick(page, 'button:has-text("退换货政策")', 1500);
       }
 
-      // 50-55s: Settings & Conclusion
-      console.log('视频章节 5/5: 系统设置与品牌结语');
+      // 53-58s: Settings & Conclusion
+      console.log('视频章节 5/5: 系统设置与品牌结语 (53-58s)');
       await smoothMoveAndClick(page, 'button:has-text("系统设置")', 1500);
-      await page.waitForTimeout(2500);
+      await page.waitForTimeout(3000);
 
       await context.close();
     }
 
-    // Convert recorded webm to MP4
+    // Convert recorded webm to 1080P MP4
     const fullVideoFiles = fs.readdirSync(fullVideoDir).filter((f) => f.endsWith('.webm'));
     if (fullVideoFiles.length > 0) {
       const rawFullVideo = path.join(fullVideoDir, fullVideoFiles[0]);
       const targetMp4 = path.join(mediaDir, 'demo.mp4');
-      console.log(`正在使用 ffmpeg 转换标准 H.264 MP4: ${targetMp4}`);
+      console.log(`正在使用 ffmpeg 转换标准 1080P H.264 MP4: ${targetMp4}`);
 
-      const ffmpegMp4Cmd = `ffmpeg -y -i "${rawFullVideo}" -c:v libx264 -pix_fmt yuv420p -crf 23 -preset fast -movflags +faststart "${targetMp4}"`;
+      // H.264 high quality, 1920x1080, yuv420p for universal browser & GitHub compatibility
+      const ffmpegMp4Cmd = `ffmpeg -y -i "${rawFullVideo}" -c:v libx264 -pix_fmt yuv420p -crf 22 -preset fast -movflags +faststart "${targetMp4}"`;
       run(ffmpegMp4Cmd);
 
       const mp4Stats = fs.statSync(targetMp4);
       console.log(`✅ demo.mp4 生成成功！大小: ${(mp4Stats.size / (1024 * 1024)).toFixed(2)} MB`);
 
+      // Get exact video duration with ffprobe/ffmpeg
+      let durationSec = 52;
+      try {
+        const probeOut = execSync(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${targetMp4}"`, { encoding: 'utf-8' });
+        const parsed = Math.round(parseFloat(probeOut.trim()));
+        if (parsed > 0) durationSec = parsed;
+      } catch {
+        // Fallback
+      }
+
       // ----------------------------------------------------
-      // Step D: 生成精美视频封面图 video-cover.png
+      // Step D: 生成 1080P 高清视频封面图 video-cover.png
+      // (抽取 32s 处于 AI 客服 + 订单协同 + 人工审核告警的最具产品特色画面)
       // ----------------------------------------------------
-      console.log('\n--- 4. 生成视频封面图 video-cover.png ---');
+      console.log(`\n--- 5. 生成最具代表性的 1080P 视频封面图 (AI 客服 + 人工审核 + 订单上下文) ---`);
       const targetCover = path.join(mediaDir, 'video-cover.png');
-      const extractFrameCmd = `ffmpeg -y -ss 00:00:28 -i "${targetMp4}" -vframes 1 "${targetCover}"`;
+      const extractFrameCmd = `ffmpeg -y -ss 00:00:32 -i "${targetMp4}" -vframes 1 "${targetCover}"`;
       run(extractFrameCmd);
-      await renderVideoCoverWithBadge(browser);
-      console.log(`✅ video-cover.png 封面生成完成！`);
+
+      await renderVideoCoverWithBadge(browser, durationSec);
+      console.log(`✅ video-cover.png 封面生成完成！标注真实时长: ${durationSec}秒`);
     }
 
     console.log('\n=============================================');

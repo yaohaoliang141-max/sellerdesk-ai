@@ -1,11 +1,11 @@
 import type { Order, Product, Conversation, StorePolicies, StoreSettings } from '../types/index.ts';
 
 const STORAGE_KEYS = {
-  ORDERS: 'sellerdesk_orders_v1',
-  PRODUCTS: 'sellerdesk_products_v1',
-  CONVERSATIONS: 'sellerdesk_conversations_v1',
-  POLICIES: 'sellerdesk_policies_v1',
-  SETTINGS: 'sellerdesk_settings_v1',
+  ORDERS: 'sellerdesk_orders_v2',
+  PRODUCTS: 'sellerdesk_products_v2',
+  CONVERSATIONS: 'sellerdesk_conversations_v2',
+  POLICIES: 'sellerdesk_policies_v2',
+  SETTINGS: 'sellerdesk_settings_v2',
 };
 
 export const INITIAL_PRODUCTS: Product[] = [
@@ -51,6 +51,21 @@ export const INITIAL_PRODUCTS: Product[] = [
     specs: '容量: 500ml; 材质: 316L医用级不锈钢内胆 + 304外壳; 防漏密封硅胶圈。',
     faqList: [
       { question: '电池可以用多久？需要充电吗？', answer: '内置低功耗高能纽扣电池，日常轻触数显可使用约1-2年，无需频繁充电。' }
+    ]
+  },
+  {
+    id: 'prod-004',
+    sku: 'DESK-ORGANIZER-04',
+    name: '北欧极简原木桌面收纳架',
+    category: '办公收纳',
+    price: 88.0,
+    cost: 28.0,
+    stock: 65,
+    description: '天然橡胶木实木打造，分层阶梯结构，专为办公桌面整理设计。',
+    specs: '尺寸: 32x20x18cm; 材质: 泰国进口橡胶木; 表面植物木蜡油涂装。',
+    faqList: [
+      { question: '需要自己拼装吗？', answer: '整装发货，开箱即用，无需任何螺丝或工具自行拼接。' },
+      { question: '木头有异味吗？', answer: '采用环保植物木蜡油擦拭养护，无甲醛无刺鼻油漆味，安全环保。' }
     ]
   }
 ];
@@ -150,6 +165,52 @@ export const INITIAL_ORDERS: Order[] = [
       costAmount: 104.0,
       notes: '已送达签收，客户已给出五星好评。',
       updatedAt: '2026-10-17 14:10:00'
+    }
+  },
+  {
+    id: 'XY-1005',
+    customerName: '周小雅',
+    customerEmail: 'xiaoya.zhou@example.com',
+    customerPhone: '137****4499',
+    customerAddress: '江苏省苏州市工业园区金鸡湖大道 88号',
+    productId: 'prod-004',
+    productName: '北欧极简原木桌面收纳架',
+    quantity: 1,
+    amount: 88.0,
+    currency: '¥',
+    orderStatus: 'paid_pending_shipment',
+    createdAt: '2026-10-20 11:20:00',
+    purchaseOrder: {
+      id: 'CG-8012',
+      supplierName: '南康市艺美木业制造厂',
+      status: 'supplier_processing',
+      costAmount: 28.0,
+      notes: '工厂正在备料打磨，预计明天下午完成入库。',
+      updatedAt: '2026-10-20 14:00:00'
+    }
+  },
+  {
+    id: 'XY-1006',
+    customerName: '赵志强',
+    customerEmail: 'zhao.zq@example.com',
+    customerPhone: '185****1123',
+    customerAddress: '四川省成都市高新区天府大道中段 1388号',
+    productId: 'prod-003',
+    productName: '智能数显保温咖啡杯 (500ml)',
+    quantity: 1,
+    amount: 99.0,
+    currency: '¥',
+    orderStatus: 'delivered',
+    createdAt: '2026-10-16 09:40:00',
+    shippingCarrier: '中通快递',
+    trackingNumber: 'ZT89123849120',
+    purchaseOrder: {
+      id: 'CG-7975',
+      supplierName: '永康市精工五金实业',
+      status: 'warehouse_received',
+      costAmount: 32.0,
+      notes: '已送达客户前台签收。',
+      updatedAt: '2026-10-18 16:30:00'
     }
   }
 ];

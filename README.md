@@ -3,7 +3,7 @@
 # SellerDesk AI
 
 **Lightweight E-commerce AI Copilot & Supply Chain Order Management Workstation**  
-*独立开发的轻量级电商智能客服与协同中台 · 真实订单研判 · 供应链隐私保护 · 事实对齐*
+*独立自研的轻量级电商智能客服与协同中台 · 真实订单研判 · 供应链隐私保护 · 事实对齐*
 
 [![Live Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-2ea44f?style=flat-square&logo=github)](https://yaohaoliang141-max.github.io/sellerdesk-ai/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
@@ -13,7 +13,7 @@
 [![TailwindCSS 3.4](https://img.shields.io/badge/TailwindCSS-3.4-38bdf8?style=flat-square&logo=tailwindcss)](https://tailwindcss.com/)
 [![Vite 5.4](https://img.shields.io/badge/Vite-5.4-646cff?style=flat-square&logo=vite)](https://vitejs.dev/)
 
-[🚀 访问线上体验版 (无需安装，即开即用)](https://yaohaoliang141-max.github.io/sellerdesk-ai/) · [📺 观看完整演示视频](#-完整产品演示视频) · [🛠 本地运行构建](#-本地部署与开发)
+[🚀 访问线上体验版 (无需安装，即开即用)](https://yaohaoliang141-max.github.io/sellerdesk-ai/) · [📺 观看 1080P 演示视频](#-完整产品演示视频) · [🛠 本地运行构建](#-本地部署与开发)
 
 </div>
 
@@ -21,9 +21,9 @@
 
 ## 📌 产品定位
 
-**SellerDesk AI** 是一个参考 Siena AI 协同理念、但独立设计与开发的**轻量级电商 AI 客服与订单协同中台**。
+**SellerDesk AI** 是一个独立设计与开发的**轻量级电商 AI 客服与订单协同中台**，内置确定性事实研判引擎与双向商业风控机制。
 
-面向轻资产电商、无货源一件代发、跨境独立站与二手电商（闲鱼/转转）卖家，打通**“终端销售订单”**与**“源头采购订单（1688/供货工厂）”**之间的信息断层。系统依托真实订单状态与商家履约政策库生成回复建议，严格防范商业机密泄露与无依据承诺，通过**“AI 研判建议 + 人工核验把关”**的闭环，保障每一次买家沟通的准确与专业。
+面向轻资产电商、无货源一件代发、跨境独立站与二手电商（闲鱼/转转）卖家，打通**“终端销售订单”**与**“源头采购订单（1688/供货工厂）”**之间的信息断层。系统依托真实订单状态与商家履约政策库生成回复建议，严格防范商业机密泄露与无依据承诺，通过**“事实研判建议 + 人工核验把关”**的闭环，保障每一次买家沟通的准确与专业。
 
 ---
 
@@ -69,6 +69,7 @@
 
 ![AI Inbox & Human Review](docs/media/inbox.png)
 
+* **专业桌面排版**：三栏宽度经过精细比例重构，操作按钮均采用单行防挤压排列，在标准 1440px 视口下清晰流畅。
 * **事实推理链公开**：展示 AI 提取的数据来源（采购状态、全店政策、商品规格），辅助商家决策。
 * **审核拦截机制**：当出现缺少单号、时效未核实或政策存疑时，强制显示审核原因并要求人工核验确认。
 * **安全模拟保存**：仅提供“保存模拟回复”与“复制回复”，不连接真实买家接口，杜绝静默误发。
@@ -89,17 +90,32 @@
 
 ### 4. 移动端全响应式适配 (Mobile View)
 
-支持随时随地在手机或平板浏览器上查看预警、查询订单并审核答复：
+精心优化的移动端抽屉导航与多视图无缝切换，杜绝横向溢出，随时随地在手机或平板上处理工作：
 
 <div align="center">
-  <img src="docs/media/mobile.png" width="360" alt="SellerDesk AI Mobile View" />
+  <table>
+    <tr>
+      <td align="center" width="33%">
+        <img src="docs/media/mobile-overview.png" alt="移动端总览仪表盘" width="240" /><br />
+        <sub><b>📱 移动端总览仪表盘</b></sub>
+      </td>
+      <td align="center" width="33%">
+        <img src="docs/media/mobile-inbox.png" alt="移动端客服工作台" width="240" /><br />
+        <sub><b>💬 移动端智能客服工作台</b></sub>
+      </td>
+      <td align="center" width="33%">
+        <img src="docs/media/mobile-orders.png" alt="移动端订单协同" width="240" /><br />
+        <sub><b>📦 移动端订单与采购协同</b></sub>
+      </td>
+    </tr>
+  </table>
 </div>
 
 ---
 
 ## 📺 完整产品演示视频
 
-点击下方视频封面即可观看 37 秒高清全流程演示视频（H.264 编码，包含 Dashboard、订单采购协同、AI 工作台研判、人工审核及知识库全景）：
+点击下方视频封面即可观看**真实 1080P Full HD（1920×1080，44 秒）**高清演示视频（H.264 编码，无黑边全景录屏，真实展示 Dashboard、订单协同、AI 客服研判与人工审核拦截）：
 
 [![Watch Product Demo Video](docs/media/video-cover.png)](docs/media/demo.mp4)
 
@@ -130,9 +146,9 @@
 | :--- | :--- | :--- |
 | **客服推理引擎** | 基于领域规则与模板的确定性推理引擎 (`aiEngine.ts`) | 接入 DeepSeek-V3 / R1 大语言模型 + 意图检索 |
 | **数据持久化** | 浏览器 `localStorage` 离线存储，支持一键重置 | 接入 Supabase / PostgreSQL 云端数据库与权限管理 |
-| **电商平台对接** | 纯前端模拟工单与测试订单录入 | 通过 Open API 或 RPA 插件对接闲鱼、淘宝、Shopify |
-| **采购平台协同** | 模拟录入 1688 采购单号、状态及成本 | 通过开放平台或无头浏览器监控 1688 供货物流回传 |
-| **消息发送模式** | 商家核验后“复制回复”或“保存模拟回复” | 经商家授权后自动推送到对应的平台客服会话 |
+| **电商平台对接** | 纯前端模拟工单与测试订单录入 | 通过 Open API 或授权插件对接闲鱼、淘宝、Shopify |
+| **采购平台协同** | 模拟录入 1688 采购单号、状态及成本 | 通过开放平台或商家授权同步 1688 供货与物流状态 |
+| **消息发送模式** | 商家核验后“复制回复”或“保存模拟回复” | 经商家授权后推送回复至对应的客服渠道 |
 
 ---
 
@@ -170,6 +186,7 @@ npm run dev
 npm run build
 
 # 自动重新生成全量产品截图、GIF 动图与演示视频 (需本地 Playwright 与 ffmpeg)
+# 执行前会自动执行 build 校验，构建失败则立即中止
 npm run generate-media
 
 # 一键部署到 GitHub Pages (gh-pages 分支)
@@ -221,7 +238,7 @@ npm run deploy
   - [ ] 支持订单与商品知识库的 CSV / Excel 批量导入导出
 - [ ] **v0.3.0 平台直连版**
   - [ ] Chrome 浏览器扩展插件，一键注入闲鱼 / 淘宝千牛客服侧边栏
-  - [ ] 1688 采购物流状态实时自动爬取与回传同步
+  - [ ] 1688 采购订单物流状态通过开放平台或商家授权回传同步
   - [ ] 多店铺、多币种与多语言跨国支持
 
 ---

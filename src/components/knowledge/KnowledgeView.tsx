@@ -120,7 +120,7 @@ export const KnowledgeView: React.FC<KnowledgeViewProps> = ({
             </h2>
             <span className="px-2 py-0.5 rounded bg-sky-50 text-sky-700 text-[11px] font-semibold flex items-center gap-1 border border-sky-100">
               <Sparkles className="w-3 h-3" />
-              Siena 对齐引擎
+              SellerDesk 事实对齐引擎
             </span>
           </div>
           <p className="text-xs text-zinc-500 mt-0.5">
