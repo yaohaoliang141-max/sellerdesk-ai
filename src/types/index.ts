@@ -92,10 +92,11 @@ export type AIMode = 'rule' | 'deepseek';
 
 export interface GeneratedReplyResult {
   replyText: string;
-  rawReply?: string; // 原始未核实回复
-  safeReply?: string; // 已通过事实核对的可用回复
-  hasFactualRisk?: boolean; // 是否包含事实安全风险（如未核实发货、假单号、假退款等）
+  rawReply?: string; // 原始模型回复
+  safeReply?: string; // 事实核对后的回复（阻断时为保守替代回复，未阻断时等于 rawReply）
+  hasFactualRisk?: boolean; // 是否包含事实安全违规风险（如无依据承诺发货、假单号、假退款等）
   isBlocked?: boolean; // 原始回复是否已被安全阻断替换
+  hasConflict?: boolean; // 是否存在历史客服承诺与知识库差异（需审核但未必阻断）
   factualRiskReasons?: string[]; // 事实安全违规原因清单
   styleAdvisories?: string[]; // 普通表达风格优化建议
   reasoningSteps: string[];

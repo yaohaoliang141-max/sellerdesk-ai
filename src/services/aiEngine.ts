@@ -465,6 +465,7 @@ ${matchedStoreFaq.answer}
   ): {
     rawReply: string;
     safeReply: string;
+    hasConflict: boolean;
     hasFactualRisk: boolean;
     isBlocked: boolean;
     factualRiskReasons: string[];
@@ -483,22 +484,30 @@ ${matchedStoreFaq.answer}
     let safeReply = rawReply;
     let requiresHumanReview = true;
     let isPrivacyBreached = false;
+    let hasConflict = false;
     let hasFactualRisk = false;
     let isBlocked = false;
 
-    // 准则：测试阶段所有真实大模型生成回复均必须要求人工核验，严禁自动化发送或自动结单
-    reviewReasons.push('【测试阶段安全确认】当前处于真实大模型测试阶段，AI 生成建议必须经人工核验后方可采纳，禁止自动发送或修改订单');
-    styleAdvisories.push('当前处于真实大模型测试阶段，AI 生成建议必须经人工核验');
-    reasoningSteps.push('🛡️ 测试阶段安全准则：大模型生成建议必须经人工核对把关，杜绝静默自动操作');
+    // 准则：业务试用阶段所有真实大模型生成回复均必须要求人工核验，严禁自动化发送或自动结单
+    reviewReasons.push('【测试阶段安全确认】当前处于人工监督业务试用阶段，AI 生成建议必须经人工核验后方可采纳，禁止自动发送或修改订单');
+    styleAdvisories.push('当前处于业务试用阶段，AI 生成建议必须经人工核验');
+    reasoningSteps.push('🛡️ 业务试用安全准则：大模型生成建议必须经人工核对把关，杜绝静默自动操作');
 
-    const { order, query, conflictAuditReason } = context;
+    const { order, query, policies, conflictAuditReason } = context;
+    const finalConflictReason =
+      conflictAuditReason || (context as Record<string, unknown>).historicalConflict
+        ? ((context as Record<string, unknown>).historicalConflict as { details?: string })?.details ||
+          conflictAuditReason ||
+          '历史承诺与知识库存在差异'
+        : conflictAuditReason;
 
-    // 0. 历史客服承诺与知识库冲突提示 (案例 C)
-    if (conflictAuditReason) {
-      reviewReasons.push(conflictAuditReason);
-      factualRiskReasons.push(conflictAuditReason);
-      hasFactualRisk = true;
-      reasoningSteps.push(`⚠️ 历史承诺冲突警告: ${conflictAuditReason}`);
+    // 0. 历史客服承诺与知识库差异冲突提示 (案例 C)
+    // 注意：历史承诺存在差异需要人工审核复核，但不代表模型输出本身存在事实违规或必须已被阻断
+    if (finalConflictReason) {
+      reviewReasons.push(finalConflictReason);
+      hasConflict = true;
+      requiresHumanReview = true;
+      reasoningSteps.push(`⚠️ 历史承诺冲突警告: ${finalConflictReason}`);
     }
 
     // 1. 供应链核心机密泄露审查 (商业隐私绝对红线)
@@ -531,17 +540,19 @@ ${matchedStoreFaq.answer}
     if (isPrivacyBreached) {
       reasoningSteps.push('❌ 检测到商业隐私泄露风险，大模型原始回复已被安全阻断，自动生成保守安全回复');
       isBlocked = true;
-      safeReply = '您好，关于您关心的订单与发货进度，目前商品正在正常备货转运中，有新的物流动态会第一时间同步给您。';
+      safeReply = order && order.id
+        ? '关于商品与订单详情，相关信息需由人工客服进一步为您确认。'
+        : '关于商品详情，具体信息需由人工客服核实确认。';
     } else {
       reasoningSteps.push('✔ 商业隐私合规：回复未泄露供应商、内部采购单号及进货成本');
     }
 
     // 2. 物流事实与时效过度承诺校验 (未录入真实运单号时严禁过度承诺)
-    const isOrderUnshipped = !order?.trackingNumber || order.orderStatus === 'paid_pending_shipment' || order.orderStatus === 'pending_payment';
+    const isOrderUnshipped = !order || !order.trackingNumber || order.orderStatus === 'paid_pending_shipment' || order.orderStatus === 'pending_payment';
     let unverifiedShippingRisk = false;
 
     if (isOrderUnshipped) {
-      const unverifiedShipping = /今天(?:一定|保证|会)?发货|明天(?:一定|保证|会)?发货|24小时内(?:发货|发出)|48小时内(?:发货|发出)|立即发货|马上安排发出|已经打单发出|包裹已寄出|已为您安排发货/.test(rawReply);
+      const unverifiedShipping = /今天.*?(?:发货|发出)|明天.*?(?:发货|发出)|24小时内(?:发货|发出)|48小时内(?:发货|发出)|立即发货|马上安排发出|已经打单发出|包裹已寄出|已为您安排发货/.test(rawReply);
       const unverifiedDelivery = /保证(?:明天|今天|后天|\d+天内).*?(?:送达|送到|到货|收到)|保证(?:明天|今天|后天|\d+天内)|明天(?:一定|准时|肯定)(?:到|送达|送到)|后天必达|预计\d+天内送达|\d+天左右收到|很快就能收到/.test(rawReply);
       const unverifiedCarrier = /(?:运单号|快递单号|单号)(?:为|是)?[:：\s]*[A-Za-z0-9]{8,}|(?:已通过|由)(?:顺丰|中通|圆通|韵达|申通|极兔|京东|邮政|EMS)发出/.test(rawReply);
 
@@ -571,7 +582,7 @@ ${matchedStoreFaq.answer}
     }
 
     // 4. 订单修改结果过度承诺校验 (未核验时严禁宣称已修改成功)
-    const unverifiedOrderChange = /(?:已经|已)(?:帮您|为您)?(?:修改成功|改成|换成|改好|修改完毕|备注好|登记成功)|新地址已(?:生效|保存|更新)/.test(rawReply);
+    const unverifiedOrderChange = /(?:已经|已)(?:帮您|为您)?(?:修改成功|修改好|改成|换成|改好|修改完毕|备注好|登记成功)|新地址已(?:生效|保存|更新)/.test(rawReply);
     let unverifiedChangeRisk = false;
 
     if (unverifiedOrderChange) {
@@ -583,16 +594,61 @@ ${matchedStoreFaq.answer}
       reasoningSteps.push('⚠️ 订单修改核验拦截：检测到未经确认的修改成功声明，已阻断原始危险回复并生成保守回复');
     }
 
-    // 5. 危险内容安全阻断与保守可用回复生成
+    // 5. 危险内容安全阻断与保守可用回复生成 (严格依据实际订单状态、政策与操作事实，不得自行断言正在备货、已记录修改或保证特定退换政策)
     if (unverifiedShippingRisk) {
       isBlocked = true;
-      safeReply = '您的订单目前处于排单备货中，运单号尚未生成，暂时无法查询实时轨迹。现货会在承诺时效内质检发出，一旦快递揽收录入单号，我第一时间同步发您。';
+      if (order && order.id) {
+        if (order.orderStatus === 'paid_pending_shipment') {
+          const purchaseStatus = order.purchaseOrder?.status;
+          let stageDesc = '';
+          if (purchaseStatus === 'supplier_shipped') {
+            stageDesc = '（工厂已出库转运中）';
+          } else if (purchaseStatus === 'warehouse_received') {
+            stageDesc = '（质检仓已收货）';
+          } else if (purchaseStatus === 'supplier_processing' || purchaseStatus === 'procured_pending_shipment') {
+            stageDesc = '（备货排产中）';
+          }
+          const policyDesc = policies?.shippingRules ? `本店发货标准为：${policies.shippingRules}` : '发货时效需人工核实';
+          safeReply = `订单当前处于待发货状态${stageDesc}，运单号尚未录入系统。${policyDesc}，具体发货进展需由人工客服进一步核对确认。`;
+        } else if (order.orderStatus === 'pending_payment') {
+          safeReply = `订单当前处于待付款状态，完成支付后方可进入发货流程，具体进度需人工核对。`;
+        } else if (order.orderStatus === 'shipped') {
+          if (order.trackingNumber) {
+            safeReply = `订单已发货（${order.shippingCarrier || '快递'}，单号：${order.trackingNumber}），具体送达时效以快递实际运输派送为准，无法做出绝对时效担保。`;
+          } else {
+            safeReply = `订单显示已发货，但运单号尚未在系统录入，具体物流时效需由人工客服核对确认。`;
+          }
+        } else {
+          safeReply = `订单状态为：${order.orderStatus}，运单号尚未生成，具体发货情况需由人工客服核对后告知。`;
+        }
+      } else {
+        // 缺少订单时，不虚构“排单备货中”
+        if (policies?.shippingRules) {
+          safeReply = `关于发货时效，本店通用规则为：${policies.shippingRules}。由于未关联具体订单，实际进度需提供订单号后由人工客服核实。`;
+        } else {
+          safeReply = `关于发货进度与时效，由于未提供具体订单信息，需由人工客服核对后告知。`;
+        }
+      }
     } else if (unverifiedRefundRisk) {
       isBlocked = true;
-      safeReply = '关于退换货与退款，本店支持签收后7天无理由退换（需保证商品完好不影响二次销售）。具体的退货核对与退款审批需由人工客服进一步办理，请暂勿自行寄出包裹。';
+      if (policies?.returnPolicy) {
+        safeReply = `关于退款与退换货，本店售后政策为：${policies.returnPolicy}。具体退货审核及退款办理需由人工客服根据订单实际情况核实办理，请暂勿自行寄出包裹。`;
+      } else {
+        safeReply = `关于退款与退换货规定，具体售后条件及办理流程需由人工客服根据订单实际情况核对确认。`;
+      }
     } else if (unverifiedChangeRisk) {
       isBlocked = true;
-      safeReply = '收到您修改订单的申请。由于订单目前尚未发货，我已先为您记录修改诉求，具体能否成功拦截修改需向仓库核实后告知您，请稍候。';
+      if (order && order.id) {
+        if (order.orderStatus === 'paid_pending_shipment') {
+          safeReply = `关于修改订单信息，订单目前尚未发货，但是否能够成功修改需向仓库核实实际打包发货状态后确认，请稍候。`;
+        } else if (order.orderStatus === 'shipped') {
+          safeReply = `订单显示已发货，快递已在途，通常无法直接修改地址，具体需由人工客服协助核实。`;
+        } else {
+          safeReply = `关于修改订单信息，需由人工客服核对当前订单状态确认是否支持修改。`;
+        }
+      } else {
+        safeReply = `关于修改订单信息，需提供订单编号后由人工客服核对是否支持修改。`;
+      }
     }
 
     // 6. 普通表达风格问题审查 (仅作提示，不作事实安全阻断)
@@ -631,6 +687,7 @@ ${matchedStoreFaq.answer}
     return {
       rawReply,
       safeReply,
+      hasConflict,
       hasFactualRisk,
       isBlocked,
       factualRiskReasons,
@@ -717,6 +774,7 @@ ${matchedStoreFaq.answer}
         safeReply: safety.safeReply,
         hasFactualRisk: safety.hasFactualRisk,
         isBlocked: safety.isBlocked,
+        hasConflict: safety.hasConflict,
         factualRiskReasons: safety.factualRiskReasons,
         styleAdvisories: safety.styleAdvisories,
         reasoningSteps: [

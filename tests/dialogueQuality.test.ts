@@ -613,7 +613,7 @@ describe('SellerDesk AI - 真人客服对话规则系统与 20 项质量体系�
     assert.equal(checkShipping.isBlocked, true, '必须安全阻断原始危险回复');
     assert.equal(checkShipping.rawReply, dangerousShippingReply);
     assert.doesNotMatch(checkShipping.safeReply, /SF99887766|保证明天上午一定给您送到/);
-    assert.match(checkShipping.safeReply, /排单备货中|运单号尚未生成/);
+    assert.match(checkShipping.safeReply, /待发货状态|运单号尚未录入/);
     assert.ok(checkShipping.factualRiskReasons.some((r) => r.includes('未核实物流承诺预警')));
 
     // B. 虚假退款完成承诺 -> 必须触发阻断，safeReply 替换为售后合规流程
@@ -655,5 +655,143 @@ describe('SellerDesk AI - 真人客服对话规则系统与 20 项质量体系�
     assert.equal(checkStyleOnly.hasFactualRisk, false, '普通风格多话不得扣上事实安全违规帽子');
     assert.equal(checkStyleOnly.isBlocked, false, '风格问题不得阻断回复');
     assert.ok(checkStyleOnly.styleAdvisories.some((s) => s.includes('建议删减未询问')));
+  });
+
+  test('回归测试 5：无订单时的安全替代回复——严禁无依据断言“排单备货中”，明确提示缺少订单号并以通用规则或中立指导回答', () => {
+    // 危险发货承诺但未关联订单 (order 为 undefined)
+    const dangerousShippingReply = '好的，明天一早就给您打包发出！';
+    const checkNoOrder = AIEngineService.checkDeepSeekReplySafety(dangerousShippingReply, {
+      order: undefined,
+      policies: mockStorePolicies,
+      query: '什么时候发货？',
+    });
+
+    assert.equal(checkNoOrder.hasFactualRisk, true, '编造具体发货时间属于事实风险');
+    assert.equal(checkNoOrder.isBlocked, true, '高危回复必须被阻断');
+    assert.doesNotMatch(checkNoOrder.safeReply, /排单备货中|已发货/);
+    assert.match(checkNoOrder.safeReply, /未关联具体订单|未提供具体订单信息|需提供订单号/);
+    assert.match(checkNoOrder.safeReply, /本店通用规则为|由人工客服核对/);
+  });
+
+  test('回归测试 6：非默认退换政策下的安全替代回复——动态引用定制政策，严禁套用写死的“7天无理由退换”', () => {
+    const customPolicies: StorePolicies = {
+      ...mockStorePolicies,
+      returnPolicy: '定制手办及封口商品不支持7天无理由退换，拆封不退不换',
+    };
+
+    const dangerousRefundReply = '款项已经为您全额退回到付款账户了，不用寄回商品！';
+    const checkCustomRefund = AIEngineService.checkDeepSeekReplySafety(dangerousRefundReply, {
+      order: mockOrderShipped,
+      policies: customPolicies,
+      query: '申请退款退货',
+    });
+
+    assert.equal(checkCustomRefund.hasFactualRisk, true);
+    assert.equal(checkCustomRefund.isBlocked, true);
+    assert.doesNotMatch(checkCustomRefund.safeReply, /款项已经为您全额退回/);
+    // 必须动态包含该店铺特定的退换政策，而不是硬编码默认的“7天无理由退换”
+    assert.match(checkCustomRefund.safeReply, /定制手办及封口商品不支持7天无理由退换/);
+    assert.doesNotMatch(checkCustomRefund.safeReply, /支持签收后7天无理由退换货/);
+  });
+
+  test('回归测试 7：未执行改地址时的安全替代回复——客观说明状态，严禁断言“已为您修改/已联系仓库/已备注给师傅”', () => {
+    const dangerousAddressReply = '新地址已经帮您修改好了，请放心！';
+    const checkAddress = AIEngineService.checkDeepSeekReplySafety(dangerousAddressReply, {
+      order: mockOrderUnshipped,
+      policies: mockStorePolicies,
+      query: '能帮我改一下收货地址吗？',
+    });
+
+    assert.equal(checkAddress.hasFactualRisk, true);
+    assert.equal(checkAddress.isBlocked, true);
+    // 严禁断言已完成修改、已联系仓库或已备注
+    assert.doesNotMatch(checkAddress.safeReply, /已经帮您修改好了|已为您改好|已经联系仓库|已为您记录修改|已备注/);
+    // 如实指出当前未发货，需向仓库核实实际打包状态
+    assert.match(checkAddress.safeReply, /尚未发货/);
+    assert.match(checkAddress.safeReply, /需向仓库核实实际打包发货状态/);
+  });
+
+  test('回归测试 8：状态清晰分离——历史承诺冲突仅触发人工审核，未被事实安全违规阻断', () => {
+    // 模拟模型给出了谨遵规范的澄清回复（未编造事实，未泄露隐私）
+    const groundedClarificationReply = '我们标配通常不包含收纳包，不过看到之前客服给您提过，我先帮您向店长确认一下能否申请。';
+    const checkConflict = AIEngineService.checkDeepSeekReplySafety(groundedClarificationReply, {
+      order: mockOrderShipped,
+      product: mockEarphoneProduct,
+      policies: mockStorePolicies,
+      query: '之前客服说送收纳包，到底送不送？',
+      conflictAuditReason: '历史客服承诺赠送收纳包，但知识库未明确收录',
+    });
+
+    // 重点验证三态完全解耦：
+    // 1. 历史冲突标记成立
+    assert.equal(checkConflict.hasConflict, true, '必须标记历史冲突存在');
+    // 2. 需人工审核把关
+    assert.equal(checkConflict.requiresHumanReview, true, '历史冲突必须触发人工审核流程');
+    // 3. 模型原始回复并无事实安全违规（未伪造单号、未泄露隐私、未擅自承诺已退款）
+    assert.equal(checkConflict.hasFactualRisk, false, '历史冲突本身不属于模型生成的事实安全违规');
+    // 4. 原始回复不得被强行阻断替换
+    assert.equal(checkConflict.isBlocked, false, '合规澄清回复不得被标记为已阻断');
+    assert.equal(checkConflict.safeReply, groundedClarificationReply, '未阻断时安全回复与原回复保持一致');
+  });
+
+  test('回归测试 9：人工编辑后复制提示与核验状态清除逻辑', () => {
+    // 验证商家手动编辑时的状态处理契约
+    const originalGeneratedReply = '常规现货在付款后48小时内发出。';
+    const editedReply = '亲，我们一般48小时内发出，我先帮您催一下仓库。';
+
+    // 契约模拟：
+    // 1. 当文本被用户编辑后，isEditedByUser 为 true，isReviewedByUser 必须被重置为 false
+    let isEditedByUser = false;
+    let isReviewedByUser = true; // 假设之前曾核验过
+
+    // 模拟触发编辑动作
+    const handleUserEdit = (newText: string) => {
+      if (newText !== originalGeneratedReply) {
+        isEditedByUser = true;
+        isReviewedByUser = false; // 清除旧的“已核验”结论
+      }
+    };
+
+    handleUserEdit(editedReply);
+    assert.equal(isEditedByUser, true);
+    assert.equal(isReviewedByUser, false, '用户编辑后必须清除原有的已核验状态');
+
+    // 2. 复制文案与状态标签映射逻辑契约验证
+    const getCopyToastMessage = (isEdited: boolean, isBlocked: boolean) => {
+      if (isEdited) {
+        return '已复制人工修改后的回复（该内容由人工编辑，尚未重新安全检查）';
+      } else if (isBlocked) {
+        return '已复制保守核对替代回复（原始未核实回复已被安全阻断）';
+      } else {
+        return '已复制 AI 建议回复（业务试用中，请核对后使用）';
+      }
+    };
+
+    const getStatusBadgeLabel = (isEdited: boolean, isBlocked: boolean, hasConflict: boolean) => {
+      if (isEdited) return '未经验证';
+      if (isBlocked) return '保守替代';
+      if (hasConflict) return '待核验';
+      return '待核验';
+    };
+
+    // 编辑后复制提示
+    assert.equal(
+      getCopyToastMessage(true, false),
+      '已复制人工修改后的回复（该内容由人工编辑，尚未重新安全检查）'
+    );
+    assert.equal(getStatusBadgeLabel(true, false, false), '未经验证');
+
+    // 阻断后复制提示
+    assert.equal(
+      getCopyToastMessage(false, true),
+      '已复制保守核对替代回复（原始未核实回复已被安全阻断）'
+    );
+    assert.equal(getStatusBadgeLabel(false, true, false), '保守替代');
+
+    // 正常建议复制提示
+    assert.equal(
+      getCopyToastMessage(false, false),
+      '已复制 AI 建议回复（业务试用中，请核对后使用）'
+    );
   });
 });

@@ -7,7 +7,7 @@
 
 [![Live Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-2ea44f?style=flat-square&logo=github)](https://yaohaoliang141-max.github.io/sellerdesk-ai/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-45%20Passed-emerald?style=flat-square&logo=node.js)](tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-50%20Passed-emerald?style=flat-square&logo=node.js)](tests/)
 [![DeepSeek](https://img.shields.io/badge/DeepSeek-API%20Integrated-4e6ef2?style=flat-square)](https://api.deepseek.com)
 [![React 18.3](https://img.shields.io/badge/React-18.3-61dafb?style=flat-square&logo=react)](https://react.dev/)
 [![TypeScript 5.6](https://img.shields.io/badge/TypeScript-5.6-3178c6?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
@@ -25,6 +25,12 @@
 **SellerDesk AI** 是一个独立设计与开发的**轻量级电商 AI 客服与订单协同中台**，内置确定性事实研判引擎与双向商业风控机制。
 
 面向轻资产电商、无货源一件代发、跨境独立站与二手电商（闲鱼/转转）卖家，打通**“终端销售订单”**与**“源头采购订单（1688/供货工厂）”**之间的信息断层。系统依托真实订单状态与商家履约政策库生成回复建议，严格防范商业机密泄露与无依据承诺，通过**“事实研判建议 + 人工核验把关”**的闭环，保障每一次买家沟通的准确与专业。
+
+> 🛡️ **当前阶段定位说明**：
+> 本项目当前明确规范为**“可进行人工监督下的业务试用阶段”**，**而非“已达到全自动客服上线标准”**。
+> - **严格保留人工审核确认流程**：系统严禁全自动静默发送消息，不连接未经审核的真实生产店铺账号，确保商家客服对每一条买家可见消息拥有最终裁决权；
+> - **事实安全精准阻断**：当大模型出现未核实的物流单号、提前承诺退款到账或断言已改地址时，系统自动安全阻断原始危险回复，并动态结合订单真实状态与店铺定制政策生成中立、保守的替代回复；
+> - **三态分离与编辑溯源**：系统彻底解耦事实安全风险（`hasFactualRisk`）、安全阻断（`isBlocked`）与人工审核（`requiresHumanReview`）；当商家在界面上手动修改生成内容后，旧的“已核验”结论自动失效，系统明确提示其属于“人工修改、尚未重新安全检查”的内容，绝不谎称“已通过事实核验”。
 
 ---
 
@@ -235,7 +241,7 @@ npm run deploy
 
 ## 🧪 自动化测试套件
 
-项目内置针对商业隐私、物流真实性、知识库全店检索、业务协同、DeepSeek 安全代理以及真人客服表达规则的 41 项自动化测试套件：
+项目内置针对商业隐私、物流真实性、知识库全店检索、业务协同、DeepSeek 安全代理、真人客服表达规则以及事实安全阻断与三态解耦的 50 项自动化测试套件：
 
 ```text
 ▶ AIEngineService - 商业隐私、真实性与知识库检索测试
@@ -282,6 +288,11 @@ npm run deploy
   ✔ 回归测试 2：中文否定表达与配件确认状态三态判断
   ✔ 回归测试 3：历史客服承诺送包，知识库明确不包含时，必须触发事实冲突审核，严禁放行
   ✔ 回归测试 4：未核实承诺安全阻断机制——危险回复不得放行，必须替换为保守可用回复，且分立风格建议
+  ✔ 回归测试 5：无订单时的安全替代回复——严禁无依据断言“排单备货中”，明确提示缺少订单号并以通用规则或中立指导回答
+  ✔ 回归测试 6：非默认退换政策下的安全替代回复——动态引用定制政策，严禁套用写死的“7天无理由退换”
+  ✔ 回归测试 7：未执行改地址时的安全替代回复——客观说明状态，严禁断言“已为您修改/已联系仓库/已备注给师傅”
+  ✔ 回归测试 8：状态清晰分离——历史承诺冲突仅触发人工审核，未被事实安全违规阻断
+  ✔ 回归测试 9：人工编辑后复制提示与核验状态清除逻辑
 
 ▶ SellerDesk AI - 完整业务协同工作流测试
   ✔ 1. 新建不同商品订单：确认选择知识库商品与自定义商品时，productId 关联准确，严禁死锁 prod-001
@@ -291,22 +302,23 @@ npm run deploy
   ✔ 5. 动态总览数据统计：真实从当前订单与会话计算，无死锁硬编码
   ✔ 6. 本地持久化储存读写校验：修改订单与保存客服回复后，StorageService 正确持久化
 
-ℹ tests 45 | suites 4 | pass 45 | fail 0
+ℹ tests 50 | suites 4 | pass 50 | fail 0
 ```
 
 ---
 
 ## 🗺 技术演进路线 (Roadmap)
 
-- [x] **v0.1.0 基础协同与真人对话系统 (当前版本)**
+- [x] **v0.1.0 基础协同与真人对话系统 (当前阶段：人工监督下的业务试用版)**
   - [x] 销售订单与 1688 采购订单多级关联
   - [x] 基于真实事实与履约规则的 AI 客服研判
   - [x] 本地 Node.js 安全代理接入 DeepSeek 官方大模型（双向脱敏与安全质检）
   - [x] 专业级真人客服表达规范系统（10 大意图切片、冲突研判、拒绝机械套话）
   - [x] 供应链核心商业机密（供应商/成本/内部备注）严格脱敏保护
   - [x] 事实安全风险主动阻断拦截与保守回复生成（未核实发货/退款/改单严禁放行）
+  - [x] 阻断状态、事实安全风险与人工审核三态解耦，人工修改内容溯源与未安检准确提示
   - [x] 双层知识库与动态指标 Dashboard
-  - [x] 45 项自动化端到端与回归测试套件全覆盖
+  - [x] 50 项自动化端到端与回归测试套件全覆盖（100% 通过）
 - [ ] **v0.2.0 云端协作版**
   - [ ] 接入 Supabase / PostgreSQL 实现多客服账号与跨设备实时同步
   - [ ] 接入 DeepSeek-V3 / DeepSeek-R1 模型后端代理（服务端安全签名）
